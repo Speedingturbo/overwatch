@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\app.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
       "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\app.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -18,11 +18,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": ".gitignore",
               "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\.gitignore",
               "RelativeDocumentMoniker": "overwatch\\.gitignore",
@@ -35,7 +35,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "App.vue",
               "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\App.vue",
               "RelativeDocumentMoniker": "overwatch\\src\\App.vue",

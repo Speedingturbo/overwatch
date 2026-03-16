@@ -3,6 +3,10 @@
   "WorkspaceRootPath": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\app.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
       "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\app.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
     }
@@ -19,12 +23,25 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
+              "Title": ".gitignore",
+              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\.gitignore",
+              "RelativeDocumentMoniker": "overwatch\\.gitignore",
+              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\.gitignore",
+              "RelativeToolTip": "overwatch\\.gitignore",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-03-16T06:25:22.854Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
               "Title": "App.vue",
               "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\App.vue",
               "RelativeDocumentMoniker": "overwatch\\src\\App.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\App.vue",
               "RelativeToolTip": "overwatch\\src\\App.vue",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAANoAAAAuAAAAAAAAAA==",
+              "ViewState": "AgIAAF0AAAAAAAAAAAAAAG8AAAAeAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
               "WhenOpened": "2026-03-12T08:41:42.344Z",
               "EditorCaption": ""
