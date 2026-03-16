@@ -1,0 +1,124 @@
+﻿<script setup>
+import { onMounted, ref } from 'vue'
+import chinaMapSvg from './assets/china_map.svg?raw'
+
+// 记录当前选中的省份id
+const selectedProvinceId = ref(null)
+// 记录当前显示的省份中文名
+const selectedProvinceName = ref('')
+
+// 省份id到中文名的映射（可根据SVG实际内容补充）
+const provinceIdToName = {}
+
+onMounted(() => {
+  // 解析SVG，获取所有省份path
+  const container = document.querySelector('.china-map')
+  if (!container) return
+  const svg = container.querySelector('svg')
+  if (!svg) return
+
+  // 构建id到中文名的映射
+  svg.querySelectorAll('.land').forEach(path => {
+    const id = path.getAttribute('id')
+    const name = path.getAttribute('title')
+    if (id && name) provinceIdToName[id] = name
+  })
+
+  // 选中高亮class
+  const SELECTED_CLASS = 'land-selected'
+  // 省份名称文本元素id
+  const LABEL_ID = 'province-label-text'
+
+  // 点击事件处理
+  svg.querySelectorAll('.land').forEach(path => {
+    path.addEventListener('click', function (e) {
+      const id = path.getAttribute('id')
+      if (!id) return
+
+      // 如果点击同一个省份，取消选中
+      if (selectedProvinceId.value === id) {
+        path.classList.remove(SELECTED_CLASS)
+        selectedProvinceId.value = null
+        selectedProvinceName.value = ''
+        // 移除label
+        const oldLabel = svg.getElementById(LABEL_ID)
+        if (oldLabel) oldLabel.remove()
+        return
+      }
+
+      // 取消上一个选中
+      if (selectedProvinceId.value) {
+        const prev = svg.getElementById(selectedProvinceId.value)
+        if (prev) prev.classList.remove(SELECTED_CLASS)
+      }
+      // 移除上一个label
+      const oldLabel = svg.getElementById(LABEL_ID)
+      if (oldLabel) oldLabel.remove()
+
+      // 选中当前
+      path.classList.add(SELECTED_CLASS)
+      selectedProvinceId.value = id
+      selectedProvinceName.value = provinceIdToName[id] || ''
+
+      // 在省份中心插入文本
+      // 计算path的中心点
+      const bbox = path.getBBox()
+      const cx = bbox.x + bbox.width / 2
+      const cy = bbox.y + bbox.height / 2
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+      label.setAttribute('id', LABEL_ID)
+      label.setAttribute('x', cx)
+      label.setAttribute('y', cy)
+      label.setAttribute('text-anchor', 'middle')
+      label.setAttribute('alignment-baseline', 'middle')
+      label.setAttribute('font-size', '18')
+      label.setAttribute('fill', '#020f24')
+      label.setAttribute('pointer-events', 'none')
+      label.textContent = selectedProvinceName.value
+      svg.appendChild(label)
+    })
+  })
+})
+</script>
+
+<template>
+  <header>
+    <div class="china-map" v-html="chinaMapSvg"></div>
+  </header>
+
+  <main>
+    <TheWelcome />
+  </main>
+</template>
+
+<style scoped>
+header {
+  grid-column: 1 / -1;
+}
+
+.china-map {
+  width: 90vw;
+  max-width: 600px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.china-map :deep(svg) {
+  width: 100%;
+  height: auto;
+}
+
+.china-map :deep(.land) {
+  cursor: pointer;
+  transition: fill 0.2s;
+}
+
+.china-map :deep(.land:hover) {
+  fill: #3b82f6;
+}
+
+.china-map :deep(.land-selected) {
+  fill: #3b82f6 !important;
+}
+</style>

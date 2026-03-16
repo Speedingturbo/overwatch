@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="overwatch/overwatch.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>

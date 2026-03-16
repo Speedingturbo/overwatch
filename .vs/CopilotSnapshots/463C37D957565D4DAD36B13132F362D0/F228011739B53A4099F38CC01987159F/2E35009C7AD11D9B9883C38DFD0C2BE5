@@ -1,0 +1,41 @@
+﻿<script setup>
+import chinaMapSvg from './assets/china_map.svg?raw'
+</script>
+
+<template>
+  <header>
+    <div class="china-map" v-html="chinaMapSvg"></div>
+  </header>
+
+  <main>
+    <TheWelcome />
+  </main>
+</template>
+
+<style scoped>
+header {
+  grid-column: 1 / -1;
+}
+
+.china-map {
+  width: 90vw;
+  max-width: 600px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.china-map :deep(svg) {
+  width: 100%;
+  height: auto;
+}
+
+.china-map :deep(.land) {
+  cursor: pointer;
+  transition: fill 0.2s;
+}
+
+.china-map :deep(.land:hover) {
+  fill: #3b82f6;
+}
+</style>
