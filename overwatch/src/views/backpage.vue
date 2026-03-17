@@ -1,0 +1,264 @@
+<script setup>
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+
+const projectName = ref('')
+const projectProgress = ref('')
+const projects = ref([])
+
+let chartInstance = null
+const chartRef = ref(null)
+
+function ensureChart() {
+  if (!chartInstance && chartRef.value) {
+    chartInstance = echarts.init(chartRef.value)
+  }
+}
+
+function updateChart() {
+  ensureChart()
+  if (!chartInstance) return
+  const option = {
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: projects.value.map((p) => p.name),
+      axisLabel: { rotate: projects.value.length > 6 ? 30 : 0 }
+    },
+    yAxis: {
+      type: 'value',
+      name: '进度 (%)',
+      min: 0,
+      max: 100
+    },
+    series: [
+      {
+        name: '项目进度',
+        type: 'bar',
+        data: projects.value.map((p) => p.progress),
+        barMaxWidth: 50,
+        itemStyle: { color: '#3398DB' },
+        label: { show: true, position: 'top', formatter: '{c}%' }
+      }
+    ],
+    grid: { left: 60, right: 30, top: 40, bottom: 50 }
+  }
+  chartInstance.setOption(option, true)
+}
+
+function addProject() {
+  const name = projectName.value.trim()
+  const progress = Number(projectProgress.value)
+  if (!name) return
+  if (isNaN(progress) || progress < 0 || progress > 100) return
+  projects.value.push({ name, progress })
+  projectName.value = ''
+  projectProgress.value = ''
+  nextTick(() => updateChart())
+}
+
+function removeProject(index) {
+  projects.value.splice(index, 1)
+  nextTick(() => updateChart())
+}
+
+function handleResize() {
+  chartInstance && chartInstance.resize()
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+})
+</script>
+
+<template>
+  <div class="data-manage">
+    <h2 class="page-title">数据管理</h2>
+
+    <div class="input-section">
+      <div class="input-group">
+        <label>项目名称</label>
+        <input v-model="projectName" placeholder="请输入项目名称" @keyup.enter="addProject" />
+      </div>
+      <div class="input-group">
+        <label>项目进度 (%)</label>
+        <input
+          v-model="projectProgress"
+          type="number"
+          min="0"
+          max="100"
+          placeholder="0 - 100"
+          @keyup.enter="addProject"
+        />
+      </div>
+      <button class="add-btn" @click="addProject">添加</button>
+    </div>
+
+    <div class="content-section" v-show="projects.length">
+      <div class="chart-wrapper">
+        <div ref="chartRef" class="chart"></div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>项目名称</th>
+              <th>进度 (%)</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, idx) in projects" :key="idx">
+              <td>{{ idx + 1 }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.progress }}</td>
+              <td><button class="del-btn" @click="removeProject(idx)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-show="!projects.length" class="empty-tip">暂无数据，请添加项目信息</div>
+  </div>
+</template>
+
+<style scoped>
+.data-manage {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #1e3a5f;
+}
+
+.input-section {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-group label {
+  font-size: 13px;
+  color: #555;
+}
+
+.input-group input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 180px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-group input:focus {
+  border-color: #3398db;
+}
+
+.add-btn {
+  padding: 8px 24px;
+  background-color: #3398db;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-btn:hover {
+  background-color: #1e6fa8;
+}
+
+.content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.chart-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+}
+
+.chart {
+  width: 100%;
+  height: 350px;
+}
+
+.table-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead {
+  background-color: #1e3a5f;
+  color: #fff;
+}
+
+th,
+td {
+  padding: 10px 16px;
+  text-align: center;
+}
+
+tbody tr:nth-child(even) {
+  background-color: #f5f8fc;
+}
+
+.del-btn {
+  padding: 4px 14px;
+  background-color: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.del-btn:hover {
+  background-color: #c0392b;
+}
+
+.empty-tip {
+  text-align: center;
+  color: #999;
+  font-size: 15px;
+  margin-top: 60px;
+}
+</style>
