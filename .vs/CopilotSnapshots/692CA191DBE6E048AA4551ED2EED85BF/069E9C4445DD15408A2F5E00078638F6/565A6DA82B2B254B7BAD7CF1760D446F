@@ -1,44 +1,9 @@
-<script setup>
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+﻿<script setup>
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
 const activeTab = ref('progress')
 
-// --- 项目概况 ---
-const ovName = ref('')
-const ovContractor = ref('')
-const ovLocation = ref('')
-const overviewList = ref([])
-
-function loadOverview() {
-  try {
-    const data = localStorage.getItem('overviewList')
-    if (data) overviewList.value = JSON.parse(data)
-  } catch { /* ignore */ }
-}
-
-function saveOverview() {
-  localStorage.setItem('overviewList', JSON.stringify(overviewList.value))
-}
-
-function addOverview() {
-  const name = ovName.value.trim()
-  const contractor = ovContractor.value.trim()
-  const location = ovLocation.value.trim()
-  if (!name || !contractor || !location) return
-  overviewList.value.push({ name, contractor, location })
-  ovName.value = ''
-  ovContractor.value = ''
-  ovLocation.value = ''
-  saveOverview()
-}
-
-function removeOverview(index) {
-  overviewList.value.splice(index, 1)
-  saveOverview()
-}
-
-// --- 项目进度 ---
 const projectName = ref('')
 const projectProgress = ref('')
 const projects = ref([])
@@ -92,7 +57,6 @@ function updateChart() {
     grid: { left: 60, right: 30, top: 40, bottom: 50 }
   }
   chartInstance.setOption(option, true)
-  chartInstance.resize()
 }
 
 function addProject() {
@@ -117,21 +81,8 @@ function handleResize() {
   chartInstance && chartInstance.resize()
 }
 
-watch(activeTab, (tab) => {
-  if (tab === 'progress') {
-    nextTick(() => {
-      if (chartInstance) {
-        chartInstance.resize()
-      } else {
-        updateChart()
-      }
-    })
-  }
-})
-
 onMounted(() => {
   loadProjects()
-  loadOverview()
   nextTick(() => updateChart())
   window.addEventListener('resize', handleResize)
 })
@@ -169,7 +120,7 @@ onBeforeUnmount(() => {
         {{ activeTab === 'overview' ? '项目概况' : activeTab === 'progress' ? '项目进度' : '项目文件' }}
       </h2>
 
-      <div v-show="activeTab === 'progress'">
+      <template v-if="activeTab === 'progress'">
       <div class="input-section">
       <div class="input-group">
         <label>项目名称</label>
@@ -217,50 +168,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-show="!projects.length" class="empty-tip">暂无数据，请添加项目信息</div>
-      </div>
+      </template>
 
-      <div v-show="activeTab === 'overview'">
-        <div class="input-section">
-          <div class="input-group">
-            <label>项目名称</label>
-            <input v-model="ovName" placeholder="请输入项目名称" @keyup.enter="addOverview" />
-          </div>
-          <div class="input-group">
-            <label>项目承建方</label>
-            <input v-model="ovContractor" placeholder="请输入承建方" @keyup.enter="addOverview" />
-          </div>
-          <div class="input-group">
-            <label>项目位置</label>
-            <input v-model="ovLocation" placeholder="请输入项目位置" @keyup.enter="addOverview" />
-          </div>
-          <button class="add-btn" @click="addOverview">添加</button>
-        </div>
-
-        <div class="table-wrapper" v-show="overviewList.length">
-          <table>
-            <thead>
-              <tr>
-                <th>序号</th>
-                <th>项目名称</th>
-                <th>项目承建方</th>
-                <th>项目位置</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, idx) in overviewList" :key="idx">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ item.contractor }}</td>
-                <td>{{ item.location }}</td>
-                <td><button class="del-btn" @click="removeOverview(idx)">删除</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-show="!overviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
-      </div>
+      <div v-if="activeTab === 'overview'" class="empty-tip">项目概况内容待开发</div>
       <div v-if="activeTab === 'files'" class="empty-tip">项目文件内容待开发</div>
     </div>
   </div>
@@ -269,13 +179,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .page-layout {
   display: flex;
-  height: 100vh;
+  min-height: 100vh;
   padding-top: 56px;
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  box-sizing: border-box;
 }
 
 .sidebar {

@@ -25,6 +25,10 @@
     {
       "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\views\\homeview.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
       "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\views\\homeview.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\components\\progresschart.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\components\\progresschart.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
     }
   ],
   "DocumentGroupContainers": [
@@ -34,8 +38,20 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 3,
           "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "ProgressChart.vue",
+              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\components\\ProgressChart.vue",
+              "RelativeDocumentMoniker": "overwatch\\src\\components\\ProgressChart.vue",
+              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\components\\ProgressChart.vue",
+              "RelativeToolTip": "overwatch\\src\\components\\ProgressChart.vue",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAF4AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
+              "WhenOpened": "2026-03-18T08:33:21.285Z"
+            },
             {
               "$type": "Document",
               "DocumentIndex": 3,
@@ -44,10 +60,9 @@
               "RelativeDocumentMoniker": "overwatch\\src\\views\\backpage.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\backpage.vue",
               "RelativeToolTip": "overwatch\\src\\views\\backpage.vue",
-              "ViewState": "AgIAAIAAAAAAAAAAAABRwFEAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAACUAAAAAAAAAAEBVwJMAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
-              "WhenOpened": "2026-03-16T07:18:11.912Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-16T07:18:11.912Z"
             },
             {
               "$type": "Document",
@@ -57,7 +72,7 @@
               "RelativeDocumentMoniker": "overwatch\\src\\views\\HomeVIew.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\HomeVIew.vue",
               "RelativeToolTip": "overwatch\\src\\views\\HomeVIew.vue",
-              "ViewState": "AgIAACMAAAAAAAAAAAAuwAAAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAB8AAAAAAAAAAEBVwBoAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
               "WhenOpened": "2026-03-16T07:35:20.101Z"
             },
@@ -69,7 +84,7 @@
               "RelativeDocumentMoniker": "overwatch\\src\\App.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\App.vue",
               "RelativeToolTip": "overwatch\\src\\App.vue",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAACsAAAAAAAAAAAAAADgAAAAMAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
               "WhenOpened": "2026-03-16T07:30:23.238Z",
               "EditorCaption": ""

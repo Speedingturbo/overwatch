@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import chinaMapSvg from '../assets/china_map.svg?raw'
 import ProgressChart from '../components/ProgressChart.vue'
@@ -30,9 +30,6 @@ const selectedProvinceName = ref('')
 const provinceIdToName = {}
 
 onMounted(() => {
-  loadProjects()
-  window.addEventListener('storage', onStorageChange)
-
   // 解析SVG，获取所有省份path
   const container = document.querySelector('.china-map')
   if (!container) return
@@ -122,17 +119,11 @@ onMounted(() => {
     })
   })
 })
-
-onBeforeUnmount(() => {
-  window.removeEventListener('storage', onStorageChange)
-})
 </script>
 
 <template>
   <div class="side-boxes left-boxes">
-    <div class="side-box">
-      <ProgressChart :projects="projects" />
-    </div>
+    <div class="side-box"></div>
     <div class="side-box"></div>
   </div>
   <div class="side-boxes right-boxes">
