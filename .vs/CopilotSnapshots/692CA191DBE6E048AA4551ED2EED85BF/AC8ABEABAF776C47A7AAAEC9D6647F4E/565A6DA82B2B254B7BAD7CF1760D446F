@@ -1,5 +1,5 @@
-<script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+﻿<script setup>
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
 const activeTab = ref('progress')
@@ -34,113 +34,14 @@ function addOverview() {
 }
 
 function removeOverview(index) {
-  const removed = overviewList.value.splice(index, 1)[0]
+  overviewList.value.splice(index, 1)
   saveOverview()
-  // 联动删除对应的进度数据
-  const pIdx = projects.value.findIndex(p => p.name === removed.name)
-  if (pIdx !== -1) {
-    projects.value.splice(pIdx, 1)
-    saveProjects()
-    nextTick(() => updateChart())
-  }
-}
-
-// --- 人员信息 ---
-const staffName = ref('')
-const staffPosition = ref('')
-const staffPhone = ref('')
-const staffIdCard = ref('')
-const staffCert = ref('')
-const staffList = ref([])
-
-function loadStaff() {
-  try {
-    const data = localStorage.getItem('staffList')
-    if (data) staffList.value = JSON.parse(data)
-  } catch { /* ignore */ }
-}
-
-function saveStaff() {
-  localStorage.setItem('staffList', JSON.stringify(staffList.value))
-}
-
-function addStaff() {
-  const name = staffName.value.trim()
-  const position = staffPosition.value.trim()
-  const phone = staffPhone.value.trim()
-  const idCard = staffIdCard.value.trim()
-  const cert = staffCert.value.trim()
-  if (!name || !position || !phone || !idCard) return
-  staffList.value.push({ name, position, phone, idCard, cert })
-  staffName.value = ''
-  staffPosition.value = ''
-  staffPhone.value = ''
-  staffIdCard.value = ''
-  staffCert.value = ''
-  saveStaff()
-  nextTick(() => updateStaffChart())
-}
-
-function removeStaff(index) {
-  staffList.value.splice(index, 1)
-  saveStaff()
-  nextTick(() => updateStaffChart())
-}
-
-let staffChartInstance = null
-const staffChartRef = ref(null)
-
-const positionStats = computed(() => {
-  const map = {}
-  staffList.value.forEach(s => {
-    const pos = s.position || '未知'
-    map[pos] = (map[pos] || 0) + 1
-  })
-  return Object.entries(map).map(([name, value]) => ({ name, value }))
-})
-
-function ensureStaffChart() {
-  if (!staffChartInstance && staffChartRef.value) {
-    staffChartInstance = echarts.init(staffChartRef.value)
-  }
-}
-
-function updateStaffChart() {
-  ensureStaffChart()
-  if (!staffChartInstance) return
-  const option = {
-    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
-    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
-    series: [{
-      name: '岗位分布',
-      type: 'pie',
-      radius: ['40%', '70%'],
-      center: ['45%', '50%'],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: {
-        show: true,
-        formatter: '{b}\n{c}人',
-        color: '#333',
-        textStyle: { color: '#333' }
-      },
-      data: positionStats.value
-    }]
-  }
-  staffChartInstance.setOption(option, true)
-  staffChartInstance.resize()
 }
 
 // --- 项目进度 ---
-const selectedProject = ref('')
+const projectName = ref('')
 const projectProgress = ref('')
 const projects = ref([])
-
-// 可选项目列表：已在概况中登记但尚未填写进度的项目
-const availableProjects = computed(() => {
-  const usedNames = new Set(projects.value.map(p => p.name))
-  return overviewList.value.filter(ov => !usedNames.has(ov.name))
-})
 
 let chartInstance = null
 const chartRef = ref(null)
@@ -195,12 +96,12 @@ function updateChart() {
 }
 
 function addProject() {
-  const name = selectedProject.value
+  const name = projectName.value.trim()
   const progress = Number(projectProgress.value)
   if (!name) return
   if (isNaN(progress) || progress < 0 || progress > 100) return
   projects.value.push({ name, progress })
-  selectedProject.value = ''
+  projectName.value = ''
   projectProgress.value = ''
   saveProjects()
   nextTick(() => updateChart())
@@ -214,7 +115,6 @@ function removeProject(index) {
 
 function handleResize() {
   chartInstance && chartInstance.resize()
-  staffChartInstance && staffChartInstance.resize()
 }
 
 watch(activeTab, (tab) => {
@@ -227,21 +127,11 @@ watch(activeTab, (tab) => {
       }
     })
   }
-  if (tab === 'staff') {
-    nextTick(() => {
-      if (staffChartInstance) {
-        staffChartInstance.resize()
-      } else {
-        updateStaffChart()
-      }
-    })
-  }
 })
 
 onMounted(() => {
   loadProjects()
   loadOverview()
-  loadStaff()
   nextTick(() => updateChart())
   window.addEventListener('resize', handleResize)
 })
@@ -251,10 +141,6 @@ onBeforeUnmount(() => {
   if (chartInstance) {
     chartInstance.dispose()
     chartInstance = null
-  }
-  if (staffChartInstance) {
-    staffChartInstance.dispose()
-    staffChartInstance = null
   }
 })
 </script>
@@ -272,10 +158,6 @@ onBeforeUnmount(() => {
           @click="activeTab = 'progress'"
         >项目进度</li>
         <li
-          :class="['sidebar-item', { active: activeTab === 'staff' }]"
-          @click="activeTab = 'staff'"
-        >人员信息</li>
-        <li
           :class="['sidebar-item', { active: activeTab === 'files' }]"
           @click="activeTab = 'files'"
         >项目文件</li>
@@ -284,19 +166,14 @@ onBeforeUnmount(() => {
 
     <div class="data-manage">
       <h2 class="page-title">
-        {{ { overview: '项目概况', progress: '项目进度', staff: '人员信息', files: '项目文件' }[activeTab] }}
+        {{ activeTab === 'overview' ? '项目概况' : activeTab === 'progress' ? '项目进度' : '项目文件' }}
       </h2>
 
       <div v-show="activeTab === 'progress'">
-      <div v-if="overviewList.length" class="input-section">
+      <div class="input-section">
       <div class="input-group">
-        <label>选择项目</label>
-        <select v-model="selectedProject" class="project-select">
-          <option value="" disabled>请选择项目</option>
-          <option v-for="ov in availableProjects" :key="ov.name" :value="ov.name">
-            {{ ov.name }}
-          </option>
-        </select>
+        <label>项目名称</label>
+        <input v-model="projectName" placeholder="请输入项目名称" @keyup.enter="addProject" />
       </div>
       <div class="input-group">
         <label>项目进度 (%)</label>
@@ -311,7 +188,6 @@ onBeforeUnmount(() => {
       </div>
       <button class="add-btn" @click="addProject">添加</button>
     </div>
-    <div v-else class="empty-tip">请先在「项目概况」中添加项目</div>
 
     <div class="content-section" v-show="projects.length">
       <div class="chart-wrapper">
@@ -340,7 +216,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-show="overviewList.length && !projects.length" class="empty-tip">暂无进度数据，请选择项目并填写进度</div>
+    <div v-show="!projects.length" class="empty-tip">暂无数据，请添加项目信息</div>
       </div>
 
       <div v-show="activeTab === 'overview'">
@@ -385,68 +261,6 @@ onBeforeUnmount(() => {
 
         <div v-show="!overviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
       </div>
-
-      <div v-show="activeTab === 'staff'">
-        <div class="input-section input-section-wrap">
-          <div class="input-group">
-            <label>姓名</label>
-            <input v-model="staffName" placeholder="请输入姓名" @keyup.enter="addStaff" />
-          </div>
-          <div class="input-group">
-            <label>岗位</label>
-            <input v-model="staffPosition" placeholder="请输入岗位" @keyup.enter="addStaff" />
-          </div>
-          <div class="input-group">
-            <label>联系方式</label>
-            <input v-model="staffPhone" placeholder="请输入联系方式" @keyup.enter="addStaff" />
-          </div>
-          <div class="input-group">
-            <label>身份证号</label>
-            <input v-model="staffIdCard" placeholder="请输入身份证号" @keyup.enter="addStaff" />
-          </div>
-          <div class="input-group">
-            <label>持证情况</label>
-            <input v-model="staffCert" placeholder="请输入持证情况" @keyup.enter="addStaff" />
-          </div>
-          <button class="add-btn" @click="addStaff">添加</button>
-        </div>
-
-        <div class="content-section" v-show="staffList.length">
-          <div class="chart-wrapper">
-            <div ref="staffChartRef" class="chart"></div>
-          </div>
-        </div>
-
-        <div class="table-wrapper" v-show="staffList.length">
-          <table>
-            <thead>
-              <tr>
-                <th>序号</th>
-                <th>姓名</th>
-                <th>岗位</th>
-                <th>联系方式</th>
-                <th>身份证号</th>
-                <th>持证情况</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, idx) in staffList" :key="idx">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ item.position }}</td>
-                <td>{{ item.phone }}</td>
-                <td>{{ item.idCard }}</td>
-                <td>{{ item.cert }}</td>
-                <td><button class="del-btn" @click="removeStaff(idx)">删除</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-show="!staffList.length" class="empty-tip">暂无人员信息，请添加</div>
-      </div>
-
       <div v-if="activeTab === 'files'" class="empty-tip">项目文件内容待开发</div>
     </div>
   </div>
@@ -499,6 +313,7 @@ onBeforeUnmount(() => {
 
 .data-manage {
   flex: 1;
+  max-width: 900px;
   padding: 32px 24px;
   overflow-y: auto;
 }
@@ -540,22 +355,6 @@ onBeforeUnmount(() => {
 }
 
 .input-group input:focus {
-  border-color: #3398db;
-}
-
-.project-select {
-  padding: 8px 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 14px;
-  width: 206px;
-  outline: none;
-  background: #fff;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.project-select:focus {
   border-color: #3398db;
 }
 

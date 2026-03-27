@@ -1,8 +1,7 @@
-<script setup>
+﻿<script setup>
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import chinaMapSvg from '../assets/china_map.svg?raw'
 import ProgressChart from '../components/ProgressChart.vue'
-import StaffChart from '../components/StaffChart.vue'
 
 // 从 localStorage 加载项目数据（与 backpage.vue 共享）
 const projects = ref([])
@@ -16,40 +15,9 @@ function loadProjects() {
   }
 }
 
-// 从 localStorage 加载项目概况数据
-const overviewList = ref([])
-
-function loadOverview() {
-  try {
-    const data = localStorage.getItem('overviewList')
-    overviewList.value = data ? JSON.parse(data) : []
-  } catch {
-    overviewList.value = []
-  }
-}
-
 function onStorageChange(e) {
   if (e.key === 'projects') {
     loadProjects()
-  }
-  if (e.key === 'overviewList') {
-    loadOverview()
-    renderProjectDots()
-  }
-  if (e.key === 'staffList') {
-    loadStaff()
-  }
-}
-
-// 从 localStorage 加载人员信息数据
-const staffList = ref([])
-
-function loadStaff() {
-  try {
-    const data = localStorage.getItem('staffList')
-    staffList.value = data ? JSON.parse(data) : []
-  } catch {
-    staffList.value = []
   }
 }
 
@@ -60,78 +28,9 @@ const selectedProvinceName = ref('')
 
 // 省份id到中文名的映射（可根据SVG实际内容补充）
 const provinceIdToName = {}
-// 中文名到省份path元素的映射
-const provinceNameToPath = {}
-
-const PROJECT_DOTS_GROUP_ID = 'project-dots-group'
-
-// 在地图上渲染项目概况的点
-function renderProjectDots() {
-  const container = document.querySelector('.china-map')
-  if (!container) return
-  const svg = container.querySelector('svg')
-  if (!svg) return
-
-  // 移除旧的点
-  const oldGroup = svg.getElementById(PROJECT_DOTS_GROUP_ID)
-  if (oldGroup) oldGroup.remove()
-
-  if (!overviewList.value.length) return
-
-  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-  group.setAttribute('id', PROJECT_DOTS_GROUP_ID)
-  group.setAttribute('pointer-events', 'none')
-
-  // 统计每个省份的项目数量
-  const provinceCount = {}
-  overviewList.value.forEach(item => {
-    const loc = item.location.trim()
-    // 模糊匹配：支持 "浙江" 或 "浙江省" 等写法
-    for (const [name, pathEl] of Object.entries(provinceNameToPath)) {
-      if (loc.includes(name) || name.includes(loc)) {
-        provinceCount[name] = (provinceCount[name] || 0) + 1
-        break
-      }
-    }
-  })
-
-  // 为每个有项目的省份绘制圆点和数字
-  for (const [name, count] of Object.entries(provinceCount)) {
-    const pathEl = provinceNameToPath[name]
-    if (!pathEl) continue
-    const bbox = pathEl.getBBox()
-    const cx = bbox.x + bbox.width / 2
-    const cy = bbox.y + bbox.height / 2
-
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-    circle.setAttribute('cx', cx)
-    circle.setAttribute('cy', cy)
-    circle.setAttribute('r', '8')
-    circle.setAttribute('fill', '#ef4444')
-    circle.setAttribute('stroke', '#fff')
-    circle.setAttribute('stroke-width', '2')
-
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-    text.setAttribute('x', cx)
-    text.setAttribute('y', cy)
-    text.setAttribute('text-anchor', 'middle')
-    text.setAttribute('dominant-baseline', 'central')
-    text.setAttribute('font-size', '10')
-    text.setAttribute('fill', '#fff')
-    text.setAttribute('font-weight', 'bold')
-    text.textContent = count
-
-    group.appendChild(circle)
-    group.appendChild(text)
-  }
-
-  svg.appendChild(group)
-}
 
 onMounted(() => {
   loadProjects()
-  loadOverview()
-  loadStaff()
   window.addEventListener('storage', onStorageChange)
 
   // 解析SVG，获取所有省份path
@@ -144,14 +43,8 @@ onMounted(() => {
   svg.querySelectorAll('.land').forEach(path => {
     const id = path.getAttribute('id')
     const name = path.getAttribute('title')
-    if (id && name) {
-      provinceIdToName[id] = name
-      provinceNameToPath[name] = path
-    }
+    if (id && name) provinceIdToName[id] = name
   })
-
-  // 渲染项目概况的点
-  renderProjectDots()
 
   // 选中高亮class
   const SELECTED_CLASS = 'land-selected'
@@ -244,9 +137,7 @@ onBeforeUnmount(() => {
   </div>
   <div class="side-boxes right-boxes">
     <div class="side-box"></div>
-    <div class="side-box">
-      <StaffChart :staffList="staffList" />
-    </div>
+    <div class="side-box"></div>
   </div>
 
   <header>
@@ -318,9 +209,5 @@ header {
 
 .china-map :deep(.land-selected) {
   fill: #3b82f6 !important;
-}
-
-.china-map :deep(#project-dots-group circle) {
-  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
 }
 </style>

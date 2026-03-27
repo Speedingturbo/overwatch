@@ -1,8 +1,7 @@
-<script setup>
+﻿<script setup>
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import chinaMapSvg from '../assets/china_map.svg?raw'
 import ProgressChart from '../components/ProgressChart.vue'
-import StaffChart from '../components/StaffChart.vue'
 
 // 从 localStorage 加载项目数据（与 backpage.vue 共享）
 const projects = ref([])
@@ -35,21 +34,6 @@ function onStorageChange(e) {
   if (e.key === 'overviewList') {
     loadOverview()
     renderProjectDots()
-  }
-  if (e.key === 'staffList') {
-    loadStaff()
-  }
-}
-
-// 从 localStorage 加载人员信息数据
-const staffList = ref([])
-
-function loadStaff() {
-  try {
-    const data = localStorage.getItem('staffList')
-    staffList.value = data ? JSON.parse(data) : []
-  } catch {
-    staffList.value = []
   }
 }
 
@@ -131,7 +115,6 @@ function renderProjectDots() {
 onMounted(() => {
   loadProjects()
   loadOverview()
-  loadStaff()
   window.addEventListener('storage', onStorageChange)
 
   // 解析SVG，获取所有省份path
@@ -244,9 +227,7 @@ onBeforeUnmount(() => {
   </div>
   <div class="side-boxes right-boxes">
     <div class="side-box"></div>
-    <div class="side-box">
-      <StaffChart :staffList="staffList" />
-    </div>
+    <div class="side-box"></div>
   </div>
 
   <header>
@@ -318,9 +299,5 @@ header {
 
 .china-map :deep(.land-selected) {
   fill: #3b82f6 !important;
-}
-
-.china-map :deep(#project-dots-group circle) {
-  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
 }
 </style>

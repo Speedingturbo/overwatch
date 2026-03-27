@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
@@ -78,57 +78,11 @@ function addStaff() {
   staffIdCard.value = ''
   staffCert.value = ''
   saveStaff()
-  nextTick(() => updateStaffChart())
 }
 
 function removeStaff(index) {
   staffList.value.splice(index, 1)
   saveStaff()
-  nextTick(() => updateStaffChart())
-}
-
-let staffChartInstance = null
-const staffChartRef = ref(null)
-
-const positionStats = computed(() => {
-  const map = {}
-  staffList.value.forEach(s => {
-    const pos = s.position || '未知'
-    map[pos] = (map[pos] || 0) + 1
-  })
-  return Object.entries(map).map(([name, value]) => ({ name, value }))
-})
-
-function ensureStaffChart() {
-  if (!staffChartInstance && staffChartRef.value) {
-    staffChartInstance = echarts.init(staffChartRef.value)
-  }
-}
-
-function updateStaffChart() {
-  ensureStaffChart()
-  if (!staffChartInstance) return
-  const option = {
-    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
-    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
-    series: [{
-      name: '岗位分布',
-      type: 'pie',
-      radius: ['40%', '70%'],
-      center: ['45%', '50%'],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: {
-        show: true,
-        formatter: '{b}\n{c}人',
-        color: '#333',
-        textStyle: { color: '#333' }
-      },
-      data: positionStats.value
-    }]
-  }
-  staffChartInstance.setOption(option, true)
-  staffChartInstance.resize()
 }
 
 // --- 项目进度 ---
@@ -214,7 +168,6 @@ function removeProject(index) {
 
 function handleResize() {
   chartInstance && chartInstance.resize()
-  staffChartInstance && staffChartInstance.resize()
 }
 
 watch(activeTab, (tab) => {
@@ -224,15 +177,6 @@ watch(activeTab, (tab) => {
         chartInstance.resize()
       } else {
         updateChart()
-      }
-    })
-  }
-  if (tab === 'staff') {
-    nextTick(() => {
-      if (staffChartInstance) {
-        staffChartInstance.resize()
-      } else {
-        updateStaffChart()
       }
     })
   }
@@ -251,10 +195,6 @@ onBeforeUnmount(() => {
   if (chartInstance) {
     chartInstance.dispose()
     chartInstance = null
-  }
-  if (staffChartInstance) {
-    staffChartInstance.dispose()
-    staffChartInstance = null
   }
 })
 </script>
@@ -411,12 +351,6 @@ onBeforeUnmount(() => {
           <button class="add-btn" @click="addStaff">添加</button>
         </div>
 
-        <div class="content-section" v-show="staffList.length">
-          <div class="chart-wrapper">
-            <div ref="staffChartRef" class="chart"></div>
-          </div>
-        </div>
-
         <div class="table-wrapper" v-show="staffList.length">
           <table>
             <thead>
@@ -499,6 +433,7 @@ onBeforeUnmount(() => {
 
 .data-manage {
   flex: 1;
+  max-width: 900px;
   padding: 32px 24px;
   overflow-y: auto;
 }

@@ -7,28 +7,12 @@
       "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\app.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\main.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\main.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\router\\index.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\router\\index.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\views\\backpage.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\views\\backpage.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\views\\homeview.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
       "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\views\\homeview.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\components\\progresschart.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
-      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\components\\progresschart.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+      "AbsoluteMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|c:\\users\\lasky\\documents\\build\\overwatch\\overwatch\\src\\views\\backpage.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{AA4CA63E-0FFC-C99D-75C7-0757FB02A06E}|overwatch\\overwatch.esproj|solutionrelative:overwatch\\src\\views\\backpage.vue||{40D31677-CBC0-4297-A9EF-89D907823A98}"
     }
   ],
   "DocumentGroupContainers": [
@@ -38,43 +22,33 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 3,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 6,
-              "Title": "ProgressChart.vue",
-              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\components\\ProgressChart.vue",
-              "RelativeDocumentMoniker": "overwatch\\src\\components\\ProgressChart.vue",
-              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\components\\ProgressChart.vue",
-              "RelativeToolTip": "overwatch\\src\\components\\ProgressChart.vue",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAF4AAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
-              "WhenOpened": "2026-03-18T08:33:21.285Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
               "Title": "backpage.vue",
               "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\backpage.vue",
               "RelativeDocumentMoniker": "overwatch\\src\\views\\backpage.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\backpage.vue",
               "RelativeToolTip": "overwatch\\src\\views\\backpage.vue",
-              "ViewState": "AgIAACUAAAAAAAAAAEBVwJMAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAUBAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
-              "WhenOpened": "2026-03-16T07:18:11.912Z"
+              "WhenOpened": "2026-03-16T07:18:11.912Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 1,
               "Title": "HomeVIew.vue",
               "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\HomeVIew.vue",
               "RelativeDocumentMoniker": "overwatch\\src\\views\\HomeVIew.vue",
-              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\HomeVIew.vue",
-              "RelativeToolTip": "overwatch\\src\\views\\HomeVIew.vue",
-              "ViewState": "AgIAAB8AAAAAAAAAAEBVwBoAAAAAAAAAAAAAAA==",
+              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\views\\HomeVIew.vue*",
+              "RelativeToolTip": "overwatch\\src\\views\\HomeVIew.vue*",
+              "ViewState": "AgIAADgBAAAAAAAAAAAAAEsAAAA8AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
-              "WhenOpened": "2026-03-16T07:35:20.101Z"
+              "WhenOpened": "2026-03-16T07:35:20.101Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -84,46 +58,10 @@
               "RelativeDocumentMoniker": "overwatch\\src\\App.vue",
               "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\App.vue",
               "RelativeToolTip": "overwatch\\src\\App.vue",
-              "ViewState": "AgIAACsAAAAAAAAAAAAAADgAAAAMAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAADgAAAAMAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003491|",
               "WhenOpened": "2026-03-16T07:30:23.238Z",
               "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "index.js",
-              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\router\\index.js",
-              "RelativeDocumentMoniker": "overwatch\\src\\router\\index.js",
-              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\router\\index.js",
-              "RelativeToolTip": "overwatch\\src\\router\\index.js",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-03-16T07:23:47.528Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "main.js",
-              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\main.js",
-              "RelativeDocumentMoniker": "overwatch\\src\\main.js",
-              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\src\\main.js",
-              "RelativeToolTip": "overwatch\\src\\main.js",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2026-03-16T06:49:31.02Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": ".gitignore",
-              "DocumentMoniker": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\.gitignore",
-              "RelativeDocumentMoniker": "overwatch\\.gitignore",
-              "ToolTip": "C:\\Users\\Lasky\\Documents\\build\\overwatch\\overwatch\\.gitignore",
-              "RelativeToolTip": "overwatch\\.gitignore",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-03-16T06:25:22.854Z"
             }
           ]
         }

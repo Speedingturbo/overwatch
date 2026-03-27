@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
@@ -110,20 +110,15 @@ function updateStaffChart() {
   if (!staffChartInstance) return
   const option = {
     tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
-    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    legend: { orient: 'vertical', right: 20, top: 'center' },
     series: [{
       name: '岗位分布',
       type: 'pie',
       radius: ['40%', '70%'],
-      center: ['45%', '50%'],
+      center: ['40%', '50%'],
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: {
-        show: true,
-        formatter: '{b}\n{c}人',
-        color: '#333',
-        textStyle: { color: '#333' }
-      },
+      label: { show: true, formatter: '{b}\n{c}人' },
       data: positionStats.value
     }]
   }
