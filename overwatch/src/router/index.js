@@ -14,6 +14,11 @@ const router = createRouter({
       name: 'blank',
       component: () => import('../views/backpage.vue'),
     },
+    {
+      path: '/hse',
+      name: 'hse',
+      component: () => import('../views/hsepage.vue'),
+    },
   ],
 })
 

@@ -13,7 +13,7 @@ function openBlankPage() {
   <nav class="navbar">
     <div class="navbar-left">
       <button class="navbar-btn" @click="router.push('/')">项目概况</button>
-      <button class="navbar-btn">人员信息</button>
+      <button class="navbar-btn" @click="router.push('/hse')">HSE管理</button>
     </div>
     <div class="navbar-title">监理管理平台</div>
     <div class="navbar-right">

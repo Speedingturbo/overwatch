@@ -1,0 +1,31 @@
+<script setup>
+</script>
+
+<template>
+  <div class="hse-page">
+    <h2 class="page-title">HSE管理</h2>
+    <div class="empty-tip">HSE管理内容待开发</div>
+  </div>
+</template>
+
+<style scoped>
+.hse-page {
+  padding-top: 80px;
+  padding-left: 32px;
+  padding-right: 32px;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #1e3a5f;
+}
+
+.empty-tip {
+  text-align: center;
+  color: #999;
+  font-size: 15px;
+  margin-top: 60px;
+}
+</style>

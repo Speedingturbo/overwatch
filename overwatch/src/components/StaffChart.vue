@@ -15,8 +15,8 @@ const chartRef = ref(null)
 const positionStats = computed(() => {
   const map = {}
   props.staffList.forEach(s => {
-    const pos = s.position || '未知'
-    map[pos] = (map[pos] || 0) + 1
+    const proj = s.project || '未分配'
+    map[proj] = (map[proj] || 0) + 1
   })
   return Object.entries(map).map(([name, value]) => ({ name, value }))
 })
@@ -39,7 +39,7 @@ function updateChart() {
       textStyle: { color: '#333', fontSize: 11 }
     },
     series: [{
-      name: '岗位分布',
+      name: '项目人员分布',
       type: 'pie',
       radius: ['25%', '50%'],
       center: ['40%', '50%'],
