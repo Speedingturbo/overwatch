@@ -1,0 +1,1919 @@
+﻿<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+
+const activeTab = ref('progress')
+const riskMenuExpanded = ref(false)
+const riskSubTabs = ['risk', 'hazard', 'preshift', 'quality']
+
+function toggleRiskMenu() {
+  riskMenuExpanded.value = !riskMenuExpanded.value
+}
+
+function selectRiskSub(tab) {
+  activeTab.value = tab
+  if (tab === 'risk') backToRiskList()
+  if (tab === 'quality') backToQualityList()
+}
+
+// --- 项目概况 ---
+const ovName = ref('')
+const ovContractor = ref('')
+const ovLocation = ref('')
+const overviewList = ref([])
+
+function loadOverview() {
+  try {
+    const data = localStorage.getItem('overviewList')
+    if (data) overviewList.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveOverview() {
+  localStorage.setItem('overviewList', JSON.stringify(overviewList.value))
+}
+
+function addOverview() {
+  const name = ovName.value.trim()
+  const contractor = ovContractor.value.trim()
+  const location = ovLocation.value.trim()
+  if (!name || !contractor || !location) return
+  overviewList.value.push({ name, contractor, location })
+  ovName.value = ''
+  ovContractor.value = ''
+  ovLocation.value = ''
+  saveOverview()
+}
+
+function removeOverview(index) {
+  const removed = overviewList.value.splice(index, 1)[0]
+  saveOverview()
+  // 联动删除对应的进度数据
+  const pIdx = projects.value.findIndex(p => p.name === removed.name)
+  if (pIdx !== -1) {
+    projects.value.splice(pIdx, 1)
+    saveProjects()
+    nextTick(() => updateChart())
+  }
+  // 联动删除对应的人员数据
+  staffList.value = staffList.value.filter(s => s.project !== removed.name)
+  saveStaff()
+  if (staffActiveProject.value === removed.name) staffActiveProject.value = null
+  // 联动删除对应的监理人员数据
+  supervisorList.value = supervisorList.value.filter(s => s.project !== removed.name)
+  saveSupervisors()
+  if (supervisorActiveProject.value === removed.name) supervisorActiveProject.value = null
+  // 联动删除对应的安全风险隐患数据
+  riskList.value = riskList.value.filter(r => r.project !== removed.name)
+  saveRisks()
+  if (riskActiveProject.value === removed.name) riskActiveProject.value = null
+  // 联动删除对应的质量管理数据
+  qualityList.value = qualityList.value.filter(q => q.project !== removed.name)
+  saveQuality()
+  if (qualityActiveProject.value === removed.name) qualityActiveProject.value = null
+}
+
+// --- 编辑项目概况 ---
+const editOverviewVisible = ref(false)
+const editOverviewIndex = ref(-1)
+const editOvName = ref('')
+const editOvContractor = ref('')
+const editOvLocation = ref('')
+
+function openEditOverview(index) {
+  const item = overviewList.value[index]
+  editOverviewIndex.value = index
+  editOvName.value = item.name
+  editOvContractor.value = item.contractor
+  editOvLocation.value = item.location
+  editOverviewVisible.value = true
+}
+
+function closeEditOverview() {
+  editOverviewVisible.value = false
+}
+
+function saveEditOverview() {
+  const name = editOvName.value.trim()
+  const contractor = editOvContractor.value.trim()
+  const location = editOvLocation.value.trim()
+  if (!name || !contractor || !location) return
+  const idx = editOverviewIndex.value
+  const oldName = overviewList.value[idx].name
+  overviewList.value[idx] = { name, contractor, location }
+  saveOverview()
+  // 联动更新关联数据中的项目名称
+  if (oldName !== name) {
+    const p = projects.value.find(p => p.name === oldName)
+    if (p) { p.name = name; saveProjects(); nextTick(() => updateChart()) }
+    staffList.value.forEach(s => { if (s.project === oldName) s.project = name })
+    saveStaff()
+    if (staffActiveProject.value === oldName) staffActiveProject.value = name
+    supervisorList.value.forEach(s => { if (s.project === oldName) s.project = name })
+    saveSupervisors()
+    if (supervisorActiveProject.value === oldName) supervisorActiveProject.value = name
+    riskList.value.forEach(r => { if (r.project === oldName) r.project = name })
+    saveRisks()
+    if (riskActiveProject.value === oldName) riskActiveProject.value = name
+    qualityList.value.forEach(q => { if (q.project === oldName) q.project = name })
+    saveQuality()
+    if (qualityActiveProject.value === oldName) qualityActiveProject.value = name
+  }
+  editOverviewVisible.value = false
+}
+
+// --- 人员信息 ---
+const staffName = ref('')
+const staffPosition = ref('')
+const staffPhone = ref('')
+const staffIdCard = ref('')
+const staffCert = ref('')
+const staffList = ref([])
+const staffActiveProject = ref(null)
+
+function loadStaff() {
+  try {
+    const data = localStorage.getItem('staffList')
+    if (data) staffList.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveStaff() {
+  localStorage.setItem('staffList', JSON.stringify(staffList.value))
+}
+
+// 当前选中项目的人员列表
+const staffForProject = computed(() => {
+  if (!staffActiveProject.value) return []
+  return staffList.value.filter(s => s.project === staffActiveProject.value)
+})
+
+// 各项目人员数量统计
+const staffCountByProject = computed(() => {
+  const map = {}
+  staffList.value.forEach(s => {
+    if (s.project) map[s.project] = (map[s.project] || 0) + 1
+  })
+  return map
+})
+
+// 各项目人员数量（饼状图数据）
+const projectStaffStats = computed(() => {
+  return overviewList.value.map(ov => ({
+    name: ov.name,
+    value: staffCountByProject.value[ov.name] || 0
+  }))
+})
+
+let projectStaffChartInstance = null
+const projectStaffChartRef = ref(null)
+
+function ensureProjectStaffChart() {
+  if (!projectStaffChartInstance && projectStaffChartRef.value) {
+    projectStaffChartInstance = echarts.init(projectStaffChartRef.value)
+  }
+}
+
+function updateProjectStaffChart() {
+  ensureProjectStaffChart()
+  if (!projectStaffChartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    series: [{
+      name: '项目人员分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['45%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333',
+        textStyle: { color: '#333' }
+      },
+      data: projectStaffStats.value
+    }]
+  }
+  projectStaffChartInstance.setOption(option, true)
+  projectStaffChartInstance.resize()
+}
+
+function disposeProjectStaffChart() {
+  if (projectStaffChartInstance) {
+    projectStaffChartInstance.dispose()
+    projectStaffChartInstance = null
+  }
+}
+
+function enterStaffProject(projectName) {
+  disposeProjectStaffChart()
+  staffActiveProject.value = projectName
+  nextTick(() => updateStaffChart())
+}
+
+function backToStaffList() {
+  if (staffChartInstance) {
+    staffChartInstance.dispose()
+    staffChartInstance = null
+  }
+  staffActiveProject.value = null
+  nextTick(() => updateProjectStaffChart())
+}
+
+function addStaff() {
+  const name = staffName.value.trim()
+  const position = staffPosition.value.trim()
+  const phone = staffPhone.value.trim()
+  const idCard = staffIdCard.value.trim()
+  const cert = staffCert.value.trim()
+  if (!name || !position || !phone || !idCard) return
+  staffList.value.push({ project: staffActiveProject.value, name, position, phone, idCard, cert })
+  staffName.value = ''
+  staffPosition.value = ''
+  staffPhone.value = ''
+  staffIdCard.value = ''
+  staffCert.value = ''
+  saveStaff()
+  nextTick(() => updateStaffChart())
+}
+
+function removeStaff(filteredIndex) {
+  const item = staffForProject.value[filteredIndex]
+  const realIndex = staffList.value.indexOf(item)
+  if (realIndex !== -1) staffList.value.splice(realIndex, 1)
+  saveStaff()
+  nextTick(() => updateStaffChart())
+}
+
+let staffChartInstance = null
+const staffChartRef = ref(null)
+
+const positionStats = computed(() => {
+  const list = staffActiveProject.value ? staffForProject.value : staffList.value
+  const map = {}
+  list.forEach(s => {
+    const pos = s.position || '未知'
+    map[pos] = (map[pos] || 0) + 1
+  })
+  return Object.entries(map).map(([name, value]) => ({ name, value }))
+})
+
+function ensureStaffChart() {
+  if (!staffChartInstance && staffChartRef.value) {
+    staffChartInstance = echarts.init(staffChartRef.value)
+  }
+}
+
+function updateStaffChart() {
+  ensureStaffChart()
+  if (!staffChartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    series: [{
+      name: '岗位分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['45%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333',
+        textStyle: { color: '#333' }
+      },
+      data: positionStats.value
+    }]
+  }
+  staffChartInstance.setOption(option, true)
+  staffChartInstance.resize()
+}
+
+// --- 监理人员信息 ---
+const supervisorName = ref('')
+const supervisorPhone = ref('')
+const supervisorList = ref([])
+const supervisorActiveProject = ref(null)
+
+function loadSupervisors() {
+  try {
+    const data = localStorage.getItem('supervisorList')
+    if (data) supervisorList.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveSupervisors() {
+  localStorage.setItem('supervisorList', JSON.stringify(supervisorList.value))
+}
+
+const supervisorForProject = computed(() => {
+  if (!supervisorActiveProject.value) return []
+  return supervisorList.value.filter(s => s.project === supervisorActiveProject.value)
+})
+
+const supervisorCountByProject = computed(() => {
+  const map = {}
+  supervisorList.value.forEach(s => {
+    if (s.project) map[s.project] = (map[s.project] || 0) + 1
+  })
+  return map
+})
+
+function enterSupervisorProject(projectName) {
+  supervisorActiveProject.value = projectName
+}
+
+function backToSupervisorList() {
+  supervisorActiveProject.value = null
+}
+
+function addSupervisor() {
+  const name = supervisorName.value.trim()
+  const phone = supervisorPhone.value.trim()
+  if (!name || !phone) return
+  supervisorList.value.push({ project: supervisorActiveProject.value, name, phone, attendance: 0, lastCheckIn: '' })
+  supervisorName.value = ''
+  supervisorPhone.value = ''
+  saveSupervisors()
+}
+
+function getTodayStr() {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+
+function hasCheckedInToday(item) {
+  return item.lastCheckIn === getTodayStr()
+}
+
+function checkIn(filteredIndex) {
+  const item = supervisorForProject.value[filteredIndex]
+  const today = getTodayStr()
+  if (item.lastCheckIn === today) return
+  item.attendance = (item.attendance || 0) + 1
+  item.lastCheckIn = today
+  saveSupervisors()
+}
+
+function removeSupervisor(filteredIndex) {
+  const item = supervisorForProject.value[filteredIndex]
+  const realIndex = supervisorList.value.indexOf(item)
+  if (realIndex !== -1) supervisorList.value.splice(realIndex, 1)
+  saveSupervisors()
+}
+
+// --- 安全风险隐患 ---
+const riskDesc = ref('')
+const riskLevel = ref('')
+const riskMeasure = ref('')
+const riskDiscoverTime = ref('')
+const riskDiscoverPlace = ref('')
+const riskPhoto = ref('')
+const riskList = ref([])
+const riskActiveProject = ref(null)
+const riskModalVisible = ref(false)
+const riskFilterLevel = ref('')
+const previewPhoto = ref('')
+
+function loadRisks() {
+  try {
+    const data = localStorage.getItem('riskList')
+    if (data) riskList.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveRisks() {
+  localStorage.setItem('riskList', JSON.stringify(riskList.value))
+}
+
+const riskForProject = computed(() => {
+  if (!riskActiveProject.value) return []
+  let list = riskList.value.filter(r => r.project === riskActiveProject.value)
+  if (riskFilterLevel.value) {
+    list = list.filter(r => r.level === riskFilterLevel.value)
+  }
+  return list
+})
+
+const riskCountByProject = computed(() => {
+  const map = {}
+  riskList.value.forEach(r => {
+    if (r.project) map[r.project] = (map[r.project] || 0) + 1
+  })
+  return map
+})
+
+function enterRiskProject(projectName) {
+  riskActiveProject.value = projectName
+  riskFilterLevel.value = ''
+}
+
+function backToRiskList() {
+  riskActiveProject.value = null
+  riskFilterLevel.value = ''
+  riskModalVisible.value = false
+}
+
+function openRiskModal() {
+  riskDesc.value = ''
+  riskDiscoverTime.value = getTodayStr()
+  riskDiscoverPlace.value = ''
+  riskLevel.value = ''
+  riskPhoto.value = ''
+  riskMeasure.value = ''
+  riskModalVisible.value = true
+}
+
+function closeRiskModal() {
+  riskModalVisible.value = false
+}
+
+function handleRiskPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => { riskPhoto.value = reader.result }
+  reader.readAsDataURL(file)
+}
+
+function addRisk() {
+  const desc = riskDesc.value.trim()
+  const level = riskLevel.value.trim()
+  const measure = riskMeasure.value.trim()
+  const discoverTime = riskDiscoverTime.value.trim()
+  const discoverPlace = riskDiscoverPlace.value.trim()
+  if (!desc || !level) return
+  riskList.value.push({
+    project: riskActiveProject.value,
+    desc,
+    discoverTime: discoverTime || getTodayStr(),
+    discoverPlace,
+    level,
+    photo: riskPhoto.value,
+    measure
+  })
+  riskModalVisible.value = false
+  saveRisks()
+}
+
+function removeRisk(filteredIndex) {
+  const item = riskForProject.value[filteredIndex]
+  const realIndex = riskList.value.indexOf(item)
+  if (realIndex !== -1) riskList.value.splice(realIndex, 1)
+  saveRisks()
+}
+
+// --- 质量管理 ---
+const qualityList = ref([])
+const qualityActiveProject = ref(null)
+const qualityModalVisible = ref(false)
+const qualityRebarPhoto = ref('')
+const qualityRebarContent = ref('')
+const qualityWiringPhoto = ref('')
+const qualityWiringContent = ref('')
+const qualityEquipmentPhoto = ref('')
+const qualityEquipmentContent = ref('')
+const qualityPreviewPhoto = ref('')
+const qualityEditIndex = ref(-1)
+const editQualityModalVisible = ref(false)
+
+function loadQuality() {
+  try {
+    const data = localStorage.getItem('qualityList')
+    if (data) qualityList.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveQuality() {
+  localStorage.setItem('qualityList', JSON.stringify(qualityList.value))
+}
+
+const qualityForProject = computed(() => {
+  if (!qualityActiveProject.value) return []
+  return qualityList.value.filter(q => q.project === qualityActiveProject.value)
+})
+
+const qualityCountByProject = computed(() => {
+  const map = {}
+  qualityList.value.forEach(q => {
+    if (q.project) map[q.project] = (map[q.project] || 0) + 1
+  })
+  return map
+})
+
+function enterQualityProject(projectName) {
+  qualityActiveProject.value = projectName
+}
+
+function backToQualityList() {
+  qualityActiveProject.value = null
+  qualityModalVisible.value = false
+}
+
+function openQualityModal() {
+  qualityEditIndex.value = -1
+  qualityRebarPhoto.value = ''
+  qualityRebarContent.value = ''
+  qualityWiringPhoto.value = ''
+  qualityWiringContent.value = ''
+  qualityEquipmentPhoto.value = ''
+  qualityEquipmentContent.value = ''
+  qualityModalVisible.value = true
+}
+
+function closeQualityModal() {
+  qualityModalVisible.value = false
+}
+
+function handleQualityPhoto(field, e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (field === 'rebar') qualityRebarPhoto.value = reader.result
+    else if (field === 'wiring') qualityWiringPhoto.value = reader.result
+    else if (field === 'equipment') qualityEquipmentPhoto.value = reader.result
+  }
+  reader.readAsDataURL(file)
+}
+
+function addQuality() {
+  const rebar = qualityRebarContent.value.trim()
+  const wiring = qualityWiringContent.value.trim()
+  const equipment = qualityEquipmentContent.value.trim()
+  if (!rebar && !wiring && !equipment) return
+  qualityList.value.push({
+    project: qualityActiveProject.value,
+    date: getTodayStr(),
+    rebar: { photo: qualityRebarPhoto.value, content: rebar },
+    wiring: { photo: qualityWiringPhoto.value, content: wiring },
+    equipment: { photo: qualityEquipmentPhoto.value, content: equipment }
+  })
+  qualityModalVisible.value = false
+  saveQuality()
+}
+
+function openEditQuality(filteredIndex) {
+  const item = qualityForProject.value[filteredIndex]
+  qualityEditIndex.value = qualityList.value.indexOf(item)
+  qualityRebarPhoto.value = (item.rebar && item.rebar.photo) || ''
+  qualityRebarContent.value = (item.rebar && item.rebar.content) || ''
+  qualityWiringPhoto.value = (item.wiring && item.wiring.photo) || ''
+  qualityWiringContent.value = (item.wiring && item.wiring.content) || ''
+  qualityEquipmentPhoto.value = (item.equipment && item.equipment.photo) || ''
+  qualityEquipmentContent.value = (item.equipment && item.equipment.content) || ''
+  editQualityModalVisible.value = true
+}
+
+function closeEditQuality() {
+  editQualityModalVisible.value = false
+}
+
+function saveEditQuality() {
+  const idx = qualityEditIndex.value
+  if (idx < 0) return
+  const rebar = qualityRebarContent.value.trim()
+  const wiring = qualityWiringContent.value.trim()
+  const equipment = qualityEquipmentContent.value.trim()
+  if (!rebar && !wiring && !equipment) return
+  const item = qualityList.value[idx]
+  item.rebar = { photo: qualityRebarPhoto.value, content: rebar }
+  item.wiring = { photo: qualityWiringPhoto.value, content: wiring }
+  item.equipment = { photo: qualityEquipmentPhoto.value, content: equipment }
+  editQualityModalVisible.value = false
+  saveQuality()
+}
+
+function removeQuality(filteredIndex) {
+  const item = qualityForProject.value[filteredIndex]
+  const realIndex = qualityList.value.indexOf(item)
+  if (realIndex !== -1) qualityList.value.splice(realIndex, 1)
+  saveQuality()
+}
+
+// --- 项目进度 ---
+const selectedProject = ref('')
+const projectProgress = ref('')
+const projects = ref([])
+
+// 可选项目列表：已在概况中登记但尚未填写进度的项目
+const availableProjects = computed(() => {
+  const usedNames = new Set(projects.value.map(p => p.name))
+  return overviewList.value.filter(ov => !usedNames.has(ov.name))
+})
+
+let chartInstance = null
+const chartRef = ref(null)
+
+function loadProjects() {
+  try {
+    const data = localStorage.getItem('projects')
+    if (data) projects.value = JSON.parse(data)
+  } catch { /* ignore */ }
+}
+
+function saveProjects() {
+  localStorage.setItem('projects', JSON.stringify(projects.value))
+}
+
+function ensureChart() {
+  if (!chartInstance && chartRef.value) {
+    chartInstance = echarts.init(chartRef.value)
+  }
+}
+
+function updateChart() {
+  ensureChart()
+  if (!chartInstance) return
+  const option = {
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: projects.value.map((p) => p.name),
+      axisLabel: { rotate: projects.value.length > 6 ? 30 : 0 }
+    },
+    yAxis: {
+      type: 'value',
+      name: '进度 (%)',
+      min: 0,
+      max: 100
+    },
+    series: [
+      {
+        name: '项目进度',
+        type: 'bar',
+        data: projects.value.map((p) => p.progress),
+        barMaxWidth: 50,
+        itemStyle: { color: '#3398DB' },
+        label: { show: true, position: 'top', formatter: '{c}%' }
+      }
+    ],
+    grid: { left: 60, right: 30, top: 40, bottom: 50 }
+  }
+  chartInstance.setOption(option, true)
+  chartInstance.resize()
+}
+
+function addProject() {
+  const name = selectedProject.value
+  const progress = Number(projectProgress.value)
+  if (!name) return
+  if (isNaN(progress) || progress < 0 || progress > 100) return
+  projects.value.push({ name, progress })
+  selectedProject.value = ''
+  projectProgress.value = ''
+  saveProjects()
+  nextTick(() => updateChart())
+}
+
+function removeProject(index) {
+  projects.value.splice(index, 1)
+  saveProjects()
+  nextTick(() => updateChart())
+}
+
+function handleResize() {
+  chartInstance && chartInstance.resize()
+  staffChartInstance && staffChartInstance.resize()
+  projectStaffChartInstance && projectStaffChartInstance.resize()
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'progress') {
+    nextTick(() => {
+      if (chartInstance) {
+        chartInstance.resize()
+      } else {
+        updateChart()
+      }
+    })
+  }
+  if (tab === 'staff') {
+    nextTick(() => {
+      if (staffActiveProject.value) {
+        if (staffChartInstance) {
+          staffChartInstance.resize()
+        } else {
+          updateStaffChart()
+        }
+      } else {
+        if (projectStaffChartInstance) {
+          projectStaffChartInstance.resize()
+        } else {
+          updateProjectStaffChart()
+        }
+      }
+    })
+  }
+})
+
+onMounted(() => {
+  loadProjects()
+  loadOverview()
+  loadStaff()
+  loadSupervisors()
+  loadRisks()
+  loadQuality()
+  nextTick(() => updateChart())
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+  if (staffChartInstance) {
+    staffChartInstance.dispose()
+    staffChartInstance = null
+  }
+  disposeProjectStaffChart()
+})
+</script>
+
+<template>
+  <div class="page-layout">
+    <aside class="sidebar">
+      <ul class="sidebar-nav">
+        <li
+          :class="['sidebar-item', { active: activeTab === 'overview' }]"
+          @click="activeTab = 'overview'"
+        >项目概况</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'progress' }]"
+          @click="activeTab = 'progress'"
+        >项目进度</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'staff' }]"
+          @click="activeTab = 'staff'; backToStaffList()"
+        >人员信息</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'supervisor' }]"
+          @click="activeTab = 'supervisor'; backToSupervisorList()"
+        >监理人员信息</li>
+        <li
+          :class="['sidebar-item', 'sidebar-parent', { active: riskSubTabs.includes(activeTab), expanded: riskMenuExpanded }]"
+          @click="toggleRiskMenu()"
+        >
+          <span>安全风险隐患</span>
+          <span class="arrow" :class="{ open: riskMenuExpanded }">▸</span>
+        </li>
+        <ul class="sidebar-sub" v-show="riskMenuExpanded">
+          <li
+            :class="['sidebar-sub-item', { active: activeTab === 'risk' }]"
+            @click="selectRiskSub('risk')"
+          >项目风险统计</li>
+          <li
+            :class="['sidebar-sub-item', { active: activeTab === 'hazard' }]"
+            @click="selectRiskSub('hazard')"
+          >危险源辨识清单</li>
+          <li
+            :class="['sidebar-sub-item', { active: activeTab === 'preshift' }]"
+            @click="selectRiskSub('preshift')"
+          >班前教育</li>
+          <li
+            :class="['sidebar-sub-item', { active: activeTab === 'quality' }]"
+            @click="selectRiskSub('quality')"
+          >质量管理</li>
+        </ul>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'files' }]"
+          @click="activeTab = 'files'"
+        >项目文件</li>
+      </ul>
+    </aside>
+
+    <div class="data-manage">
+      <h2 class="page-title">
+        {{ { overview: '项目概况', progress: '项目进度', staff: '人员信息', supervisor: '监理人员信息', risk: '项目风险统计', hazard: '危险源辨识清单', preshift: '班前教育', quality: '质量管理', files: '项目文件' }[activeTab] }}
+        <span v-if="activeTab === 'staff' && staffActiveProject" class="page-title-sub"> — {{ staffActiveProject }}</span>
+        <span v-if="activeTab === 'supervisor' && supervisorActiveProject" class="page-title-sub"> — {{ supervisorActiveProject }}</span>
+        <span v-if="activeTab === 'risk' && riskActiveProject" class="page-title-sub"> — {{ riskActiveProject }}</span>
+        <span v-if="activeTab === 'quality' && qualityActiveProject" class="page-title-sub"> — {{ qualityActiveProject }}</span>
+      </h2>
+
+      <div v-show="activeTab === 'progress'">
+      <div v-if="overviewList.length" class="input-section">
+      <div class="input-group">
+        <label>选择项目</label>
+        <select v-model="selectedProject" class="project-select">
+          <option value="" disabled>请选择项目</option>
+          <option v-for="ov in availableProjects" :key="ov.name" :value="ov.name">
+            {{ ov.name }}
+          </option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>项目进度 (%)</label>
+        <input
+          v-model="projectProgress"
+          type="number"
+          min="0"
+          max="100"
+          placeholder="0 - 100"
+          @keyup.enter="addProject"
+        />
+      </div>
+      <button class="add-btn" @click="addProject">添加</button>
+    </div>
+    <div v-else class="empty-tip">请先在「项目概况」中添加项目</div>
+
+    <div class="content-section" v-show="projects.length">
+      <div class="chart-wrapper">
+        <div ref="chartRef" class="chart"></div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>项目名称</th>
+              <th>进度 (%)</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, idx) in projects" :key="idx">
+              <td>{{ idx + 1 }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.progress }}</td>
+              <td><button class="del-btn" @click="removeProject(idx)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-show="overviewList.length && !projects.length" class="empty-tip">暂无进度数据，请选择项目并填写进度</div>
+      </div>
+
+      <div v-show="activeTab === 'overview'">
+        <div class="input-section">
+          <div class="input-group">
+            <label>项目名称</label>
+            <input v-model="ovName" placeholder="请输入项目名称" @keyup.enter="addOverview" />
+          </div>
+          <div class="input-group">
+            <label>项目承建方</label>
+            <input v-model="ovContractor" placeholder="请输入承建方" @keyup.enter="addOverview" />
+          </div>
+          <div class="input-group">
+            <label>项目位置</label>
+            <input v-model="ovLocation" placeholder="请输入项目位置" @keyup.enter="addOverview" />
+          </div>
+          <button class="add-btn" @click="addOverview">添加</button>
+        </div>
+
+        <div class="table-wrapper" v-show="overviewList.length">
+          <table>
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>项目名称</th>
+                <th>项目承建方</th>
+                <th>项目位置</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in overviewList" :key="idx">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ item.name }}</td>
+                <td>{{ item.contractor }}</td>
+                <td>{{ item.location }}</td>
+                <td>
+                  <button class="edit-btn" @click="openEditOverview(idx)">编辑</button>
+                  <button class="del-btn" @click="removeOverview(idx)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-show="!overviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
+
+        <!-- 编辑项目浮窗 -->
+        <div v-if="editOverviewVisible" class="modal-overlay" @click.self="closeEditOverview">
+          <div class="modal-content">
+            <h3 class="modal-title">编辑项目信息</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>项目名称</label>
+                <input v-model="editOvName" placeholder="请输入项目名称" />
+              </div>
+              <div class="modal-field">
+                <label>项目承建方</label>
+                <input v-model="editOvContractor" placeholder="请输入承建方" />
+              </div>
+              <div class="modal-field">
+                <label>项目位置</label>
+                <input v-model="editOvLocation" placeholder="请输入项目位置" />
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeEditOverview">取消</button>
+              <button class="add-btn" @click="saveEditOverview">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'staff'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!staffActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>人员数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterStaffProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ staffCountByProject[ov.name] || 0 }} 人</td>
+                  <td><button class="view-btn" @click="enterStaffProject(ov.name)">查看人员</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="overviewList.length && staffList.length" class="content-section" style="margin-top: 24px;">
+            <div class="chart-wrapper">
+              <div ref="projectStaffChartRef" class="chart"></div>
+            </div>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：项目人员详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToStaffList">← 返回项目列表</button>
+
+          <div class="input-section input-section-wrap">
+            <div class="input-group">
+              <label>姓名</label>
+              <input v-model="staffName" placeholder="请输入姓名" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>岗位</label>
+              <input v-model="staffPosition" placeholder="请输入岗位" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>联系方式</label>
+              <input v-model="staffPhone" placeholder="请输入联系方式" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>身份证号</label>
+              <input v-model="staffIdCard" placeholder="请输入身份证号" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>持证情况</label>
+              <input v-model="staffCert" placeholder="请输入持证情况" @keyup.enter="addStaff" />
+            </div>
+            <button class="add-btn" @click="addStaff">添加</button>
+          </div>
+
+          <div class="content-section" v-show="staffForProject.length">
+            <div class="chart-wrapper">
+              <div ref="staffChartRef" class="chart"></div>
+            </div>
+          </div>
+
+          <div class="table-wrapper" v-show="staffForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>姓名</th>
+                  <th>岗位</th>
+                  <th>联系方式</th>
+                  <th>身份证号</th>
+                  <th>持证情况</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in staffForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.position }}</td>
+                  <td>{{ item.phone }}</td>
+                  <td>{{ item.idCard }}</td>
+                  <td>{{ item.cert }}</td>
+                  <td><button class="del-btn" @click="removeStaff(idx)">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!staffForProject.length" class="empty-tip">该项目暂无人员，请添加</div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'supervisor'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!supervisorActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>监理人员数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterSupervisorProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ supervisorCountByProject[ov.name] || 0 }} 人</td>
+                  <td><button class="view-btn" @click="enterSupervisorProject(ov.name)">查看监理人员</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：监理人员详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToSupervisorList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <div class="input-group">
+              <label>姓名</label>
+              <input v-model="supervisorName" placeholder="请输入姓名" @keyup.enter="addSupervisor" />
+            </div>
+            <div class="input-group">
+              <label>联系方式</label>
+              <input v-model="supervisorPhone" placeholder="请输入联系方式" @keyup.enter="addSupervisor" />
+            </div>
+            <button class="add-btn" @click="addSupervisor">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="supervisorForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>姓名</th>
+                  <th>联系方式</th>
+                  <th>考勤次数</th>
+                  <th>考勤</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in supervisorForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.phone }}</td>
+                  <td>{{ item.attendance || 0 }}</td>
+                  <td>
+                    <button
+                      v-if="!hasCheckedInToday(item)"
+                      class="checkin-btn"
+                      @click="checkIn(idx)"
+                    >签到</button>
+                    <span v-else class="checkin-done">今日已签到</span>
+                  </td>
+                  <td><button class="del-btn" @click="removeSupervisor(idx)">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!supervisorForProject.length" class="empty-tip">该项目暂无监理人员，请添加</div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'risk'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!riskActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>隐患数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterRiskProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterRiskProject(ov.name)">安全管理</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：安全风险隐患详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToRiskList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <div class="input-group">
+              <label>筛选风险等级</label>
+              <select v-model="riskFilterLevel" class="project-select">
+                <option value="">全部</option>
+                <option value="低">低</option>
+                <option value="中">中</option>
+                <option value="高">高</option>
+                <option value="重大">重大</option>
+              </select>
+            </div>
+            <button class="add-btn" @click="openRiskModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="riskForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>风险隐患描述</th>
+                  <th>发现时间</th>
+                  <th>发现地点</th>
+                  <th>风险等级</th>
+                  <th>隐患照片</th>
+                  <th>整改措施</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in riskForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.desc }}</td>
+                  <td>{{ item.discoverTime || item.date || '—' }}</td>
+                  <td>{{ item.discoverPlace || '—' }}</td>
+                  <td>
+                    <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>
+                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="previewPhoto = item.photo" />
+                    <span v-else>—</span>
+                  </td>
+                  <td>{{ item.measure || '—' }}</td>
+                  <td><button class="del-btn" @click="removeRisk(idx)">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!riskForProject.length" class="empty-tip">该项目暂无安全风险隐患记录</div>
+
+          <!-- 添加风险隐患浮窗 -->
+          <div v-if="riskModalVisible" class="modal-overlay" @click.self="closeRiskModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加安全风险隐患</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>风险隐患描述</label>
+                  <textarea v-model="riskDesc" placeholder="请输入风险隐患描述" rows="3"></textarea>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>发现时间</label>
+                    <input type="date" v-model="riskDiscoverTime" />
+                  </div>
+                  <div class="modal-field">
+                    <label>发现地点</label>
+                    <input v-model="riskDiscoverPlace" placeholder="请输入发现地点" />
+                  </div>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>风险等级</label>
+                    <select v-model="riskLevel" class="project-select">
+                      <option value="" disabled>请选择风险等级</option>
+                      <option value="低">低</option>
+                      <option value="中">中</option>
+                      <option value="高">高</option>
+                      <option value="重大">重大</option>
+                    </select>
+                  </div>
+                  <div class="modal-field">
+                    <label>隐患照片</label>
+                    <input type="file" accept="image/*" @change="handleRiskPhoto" />
+                  </div>
+                </div>
+                <div class="modal-field" v-if="riskPhoto">
+                  <img :src="riskPhoto" class="risk-photo-preview" />
+                </div>
+                <div class="modal-field">
+                  <label>整改措施</label>
+                  <textarea v-model="riskMeasure" placeholder="请输入整改措施" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeRiskModal">取消</button>
+                <button class="add-btn" @click="addRisk">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 照片预览浮层 -->
+          <div v-if="previewPhoto" class="modal-overlay" @click="previewPhoto = ''">
+            <img :src="previewPhoto" class="risk-photo-full" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'hazard'" class="empty-tip">危险源辨识清单内容待开发</div>
+
+      <div v-if="activeTab === 'preshift'" class="empty-tip">班前教育内容待开发</div>
+
+      <div v-show="activeTab === 'quality'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!qualityActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>记录数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterQualityProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ qualityCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterQualityProject(ov.name)">质量管理详情</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：质量管理详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToQualityList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openQualityModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="qualityForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>填报日期</th>
+                  <th>钢筋</th>
+                  <th>基础布线</th>
+                  <th>设备安装</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in qualityForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.date }}</td>
+                  <td class="quality-cell">
+                    <img v-if="item.rebar && item.rebar.photo" :src="item.rebar.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.rebar.photo" />
+                    <span>{{ (item.rebar && item.rebar.content) || '—' }}</span>
+                  </td>
+                  <td class="quality-cell">
+                    <img v-if="item.wiring && item.wiring.photo" :src="item.wiring.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.wiring.photo" />
+                    <span>{{ (item.wiring && item.wiring.content) || '—' }}</span>
+                  </td>
+                  <td class="quality-cell">
+                    <img v-if="item.equipment && item.equipment.photo" :src="item.equipment.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.equipment.photo" />
+                    <span>{{ (item.equipment && item.equipment.content) || '—' }}</span>
+                  </td>
+                  <td>
+                    <button class="edit-btn" @click="openEditQuality(idx)">编辑</button>
+                    <button class="del-btn" @click="removeQuality(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!qualityForProject.length" class="empty-tip">该项目暂无质量管理记录</div>
+
+          <!-- 添加质量管理浮窗 -->
+          <div v-if="qualityModalVisible" class="modal-overlay" @click.self="closeQualityModal">
+            <div class="modal-content">
+              <h3 class="modal-title">质量管理填报</h3>
+              <div class="modal-form">
+                <div class="quality-section">
+                  <div class="quality-section-label">钢筋</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('rebar', $event)" />
+                  </div>
+                  <img v-if="qualityRebarPhoto" :src="qualityRebarPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityRebarContent" placeholder="请输入钢筋相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">基础布线</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('wiring', $event)" />
+                  </div>
+                  <img v-if="qualityWiringPhoto" :src="qualityWiringPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityWiringContent" placeholder="请输入基础布线相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">设备安装</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('equipment', $event)" />
+                  </div>
+                  <img v-if="qualityEquipmentPhoto" :src="qualityEquipmentPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityEquipmentContent" placeholder="请输入设备安装相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeQualityModal">取消</button>
+                <button class="add-btn" @click="addQuality">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 编辑质量管理浮窗 -->
+          <div v-if="editQualityModalVisible" class="modal-overlay" @click.self="closeEditQuality">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑质量管理填报</h3>
+              <div class="modal-form">
+                <div class="quality-section">
+                  <div class="quality-section-label">钢筋</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('rebar', $event)" />
+                  </div>
+                  <img v-if="qualityRebarPhoto" :src="qualityRebarPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityRebarContent" placeholder="请输入钢筋相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">基础布线</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('wiring', $event)" />
+                  </div>
+                  <img v-if="qualityWiringPhoto" :src="qualityWiringPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityWiringContent" placeholder="请输入基础布线相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">设备安装</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('equipment', $event)" />
+                  </div>
+                  <img v-if="qualityEquipmentPhoto" :src="qualityEquipmentPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityEquipmentContent" placeholder="请输入设备安装相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditQuality">取消</button>
+                <button class="add-btn" @click="saveEditQuality">保存</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 照片预览浮层 -->
+          <div v-if="qualityPreviewPhoto" class="modal-overlay" @click="qualityPreviewPhoto = ''">
+            <img :src="qualityPreviewPhoto" class="risk-photo-full" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'files'" class="empty-tip">项目文件内容待开发</div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page-layout {
+  display: flex;
+  height: 100vh;
+  padding-top: 56px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sidebar {
+  width: 180px;
+  min-width: 180px;
+  background-color: #1e3a5f;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-item {
+  padding: 16px 24px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-item.active {
+  background-color: rgba(51, 153, 255, 0.3);
+  border-left-color: #3398db;
+  font-weight: 600;
+}
+
+.sidebar-parent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.arrow {
+  font-size: 12px;
+  transition: transform 0.25s;
+}
+
+.arrow.open {
+  transform: rotate(90deg);
+}
+
+.sidebar-sub {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+.sidebar-sub-item {
+  padding: 12px 24px 12px 40px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-left: 3px solid transparent;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sidebar-sub-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-sub-item.active {
+  background-color: rgba(51, 153, 255, 0.25);
+  border-left-color: #3398db;
+  font-weight: 600;
+  color: #fff;
+}
+
+.data-manage {
+  flex: 1;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #1e3a5f;
+}
+
+.input-section {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-group label {
+  font-size: 13px;
+  color: #555;
+}
+
+.input-group input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 180px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-group input:focus {
+  border-color: #3398db;
+}
+
+.project-select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 206px;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.project-select:focus {
+  border-color: #3398db;
+}
+
+.add-btn {
+  padding: 8px 24px;
+  background-color: #3398db;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-btn:hover {
+  background-color: #1e6fa8;
+}
+
+.content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.chart-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+}
+
+.chart {
+  width: 100%;
+  height: 350px;
+}
+
+.table-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead {
+  background-color: #1e3a5f;
+  color: #fff;
+}
+
+th,
+td {
+  padding: 10px 16px;
+  text-align: center;
+}
+
+tbody tr:nth-child(even) {
+  background-color: #f5f8fc;
+}
+
+.edit-btn {
+  padding: 4px 14px;
+  background-color: #f39c12;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 6px;
+}
+
+.edit-btn:hover {
+  background-color: #d68910;
+}
+
+.del-btn {
+  padding: 4px 14px;
+  background-color: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.del-btn:hover {
+  background-color: #c0392b;
+}
+
+.empty-tip {
+  text-align: center;
+  color: #999;
+  font-size: 15px;
+  margin-top: 60px;
+}
+
+.page-title-sub {
+  font-size: 18px;
+  font-weight: 400;
+  color: #555;
+}
+
+.project-link {
+  color: #3398db;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.project-link:hover {
+  text-decoration: underline;
+}
+
+.view-btn {
+  padding: 4px 14px;
+  background-color: #3398db;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-btn:hover {
+  background-color: #1e6fa8;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #3398db;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.checkin-btn {
+  padding: 4px 14px;
+  background-color: #27ae60;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkin-btn:hover {
+  background-color: #1e8449;
+}
+
+.checkin-done {
+  color: #999;
+  font-size: 13px;
+}
+
+.risk-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.risk-低 {
+  background-color: #27ae60;
+}
+
+.risk-中 {
+  background-color: #f39c12;
+}
+
+.risk-高 {
+  background-color: #e74c3c;
+}
+
+.risk-重大 {
+  background-color: #8e44ad;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 28px 32px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e3a5f;
+  margin: 0 0 20px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.modal-field label {
+  font-size: 13px;
+  color: #555;
+}
+
+.modal-field input,
+.modal-field textarea,
+.modal-field select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.modal-field input:focus,
+.modal-field textarea:focus,
+.modal-field select:focus {
+  border-color: #3398db;
+}
+
+.modal-field textarea {
+  resize: vertical;
+}
+
+.modal-field input[type="file"] {
+  padding: 6px;
+  font-size: 13px;
+}
+
+.modal-row {
+  display: flex;
+  gap: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.modal-cancel-btn {
+  padding: 8px 24px;
+  background-color: #fff;
+  color: #555;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.modal-cancel-btn:hover {
+  background-color: #f5f5f5;
+}
+
+.risk-photo-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #ddd;
+  transition: opacity 0.2s;
+}
+
+.risk-photo-thumb:hover {
+  opacity: 0.8;
+}
+
+.risk-photo-preview {
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: 4px;
+  border: 1px solid #eee;
+}
+
+.risk-photo-full {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.quality-section {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quality-section-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.quality-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.quality-actions {
+  white-space: nowrap;
+  width: 140px;
+  min-width: 140px;
+}
+</style>

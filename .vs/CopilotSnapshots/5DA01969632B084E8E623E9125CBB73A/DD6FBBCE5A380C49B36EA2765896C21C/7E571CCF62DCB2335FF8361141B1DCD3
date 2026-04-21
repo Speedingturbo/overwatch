@@ -1,0 +1,347 @@
+﻿<script setup>
+// 引入 Vue 组合式 API：onMounted（组件挂载后执行）、ref（响应式变量）
+import { onMounted, ref } from 'vue'
+// 以原始字符串形式导入中国地图 SVG，用于页面中央的地图展示
+import chinaMapSvg from '../assets/china_map.svg?raw'
+// 引入三个图表子组件，分别展示项目进度、人员分布、监理人员分布
+import ProgressChart from '../components/ProgressChart.vue'
+import StaffChart from '../components/StaffChart.vue'
+import SupervisorChart from '../components/SupervisorChart.vue'
+
+// 从后端 API 加载项目进度数据（与 backpage.vue 共享同一 SQLite 数据库）
+const projects = ref([])
+
+async function loadProjects() {
+  try {
+    const res = await fetch('/api/projects')
+    projects.value = await res.json()
+  } catch {
+    projects.value = []
+  }
+}
+
+// 从后端 API 加载项目概况数据
+const overviewList = ref([])
+
+async function loadOverview() {
+  try {
+    const res = await fetch('/api/overview')
+    overviewList.value = await res.json()
+  } catch {
+    overviewList.value = []
+  }
+}
+
+// 从后端 API 加载人员信息数据
+const staffList = ref([])
+
+async function loadStaff() {
+  try {
+    const res = await fetch('/api/staff')
+    staffList.value = await res.json()
+  } catch {
+    staffList.value = []
+  }
+}
+
+// 从后端 API 加载监理人员数据
+const supervisorList = ref([])
+
+async function loadSupervisors() {
+  try {
+    const res = await fetch('/api/supervisors')
+    supervisorList.value = await res.json()
+  } catch {
+    supervisorList.value = []
+  }
+}
+
+// 记录当前选中的省份id
+const selectedProvinceId = ref(null)
+// 记录当前显示的省份中文名
+const selectedProvinceName = ref('')
+
+// 省份id到中文名的映射（可根据SVG实际内容补充）
+const provinceIdToName = {}
+// 中文名到省份path元素的映射
+const provinceNameToPath = {}
+
+// SVG 中用于存放项目标记点的分组元素 id，方便后续查找和清除
+const PROJECT_DOTS_GROUP_ID = 'project-dots-group'
+
+// 在中国地图 SVG 上，根据项目概况中的位置信息，为对应省份绘制红色圆点和数量标注
+function renderProjectDots() {
+  const container = document.querySelector('.china-map')
+  if (!container) return
+  const svg = container.querySelector('svg')
+  if (!svg) return
+
+  // 移除旧的点
+  const oldGroup = svg.getElementById(PROJECT_DOTS_GROUP_ID)
+  if (oldGroup) oldGroup.remove()
+
+  if (!overviewList.value.length) return
+
+  // 创建一个 SVG <g> 分组元素，用于容纳所有项目标记点，并禁止鼠标事件穿透
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  group.setAttribute('id', PROJECT_DOTS_GROUP_ID)
+  group.setAttribute('pointer-events', 'none')
+
+  // 遍历项目概况列表，按省份名称进行模糊匹配，统计每个省份包含多少个项目
+  const provinceCount = {}
+  overviewList.value.forEach(item => {
+    const loc = item.location.trim()
+    // 模糊匹配：支持 "浙江" 或 "浙江省" 等写法
+    for (const [name, pathEl] of Object.entries(provinceNameToPath)) {
+      if (loc.includes(name) || name.includes(loc)) {
+        provinceCount[name] = (provinceCount[name] || 0) + 1
+        break
+      }
+    }
+  })
+
+  // 遍历省份统计结果，在每个有项目的省份中心位置绘制红色圆点和白色数量文字
+  for (const [name, count] of Object.entries(provinceCount)) {
+    const pathEl = provinceNameToPath[name]
+    if (!pathEl) continue
+    // 获取省份 path 元素的边界框，计算其中心坐标作为标记点位置
+    const bbox = pathEl.getBBox()
+    const cx = bbox.x + bbox.width / 2
+    const cy = bbox.y + bbox.height / 2
+
+    // 绘制红色圆点（带白色描边）
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    circle.setAttribute('cx', cx)
+    circle.setAttribute('cy', cy)
+    circle.setAttribute('r', '8')
+    circle.setAttribute('fill', '#ef4444')
+    circle.setAttribute('stroke', '#fff')
+    circle.setAttribute('stroke-width', '2')
+
+    // 在圆点上方叠加白色数字文本，显示该省份的项目数量
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    text.setAttribute('x', cx)
+    text.setAttribute('y', cy)
+    text.setAttribute('text-anchor', 'middle')
+    text.setAttribute('dominant-baseline', 'central')
+    text.setAttribute('font-size', '10')
+    text.setAttribute('fill', '#fff')
+    text.setAttribute('font-weight', 'bold')
+    text.textContent = String(count)
+
+    // 将圆点和文字添加到分组元素中
+    group.appendChild(circle)
+    group.appendChild(text)
+  }
+
+  // 将整个标记点分组追加到 SVG 中进行渲染
+  svg.appendChild(group)
+}
+
+// 组件挂载后执行：并行加载所有后端数据，然后初始化地图交互
+onMounted(async () => {
+  // 并行请求项目进度、项目概况、人员信息、监理人员四个接口，等待全部完成
+  await Promise.all([loadProjects(), loadOverview(), loadStaff(), loadSupervisors()])
+
+  // 获取页面中渲染的中国地图 SVG 元素
+  const container = document.querySelector('.china-map')
+  if (!container) return
+  const svg = container.querySelector('svg')
+  if (!svg) return
+
+  // 遍历地图中所有 class="land" 的省份 path 元素，建立 id↔中文名 的双向映射
+  svg.querySelectorAll('.land').forEach(path => {
+    const id = path.getAttribute('id')
+    const name = path.getAttribute('title')
+    if (id && name) {
+      provinceIdToName[id] = name
+      provinceNameToPath[name] = path
+    }
+  })
+
+  // 映射建立完成后，在地图上渲染项目标记点
+  renderProjectDots()
+
+  // 省份选中时添加的高亮 CSS 类名
+  const SELECTED_CLASS = 'land-selected'
+  // 省份名称浮动标签的元素 id，用于定位和移除
+  const LABEL_ID = 'province-label-text'
+
+  // 为每个省份 path 绑定点击事件，实现选中高亮和名称标签显示
+  svg.querySelectorAll('.land').forEach(path => {
+    path.addEventListener('click', function (e) {
+      const id = path.getAttribute('id')
+      if (!id) return
+
+      // 如果点击同一个省份，取消选中
+      if (selectedProvinceId.value === id) {
+        path.classList.remove(SELECTED_CLASS)
+        selectedProvinceId.value = null
+        selectedProvinceName.value = ''
+        // 移除label
+        const oldLabel = svg.getElementById(LABEL_ID)
+        if (oldLabel) oldLabel.remove()
+        return
+      }
+
+      // 取消上一个选中
+      if (selectedProvinceId.value) {
+        const prev = svg.getElementById(selectedProvinceId.value)
+        if (prev) prev.classList.remove(SELECTED_CLASS)
+      }
+      // 移除上一个label
+      const oldLabel = svg.getElementById(LABEL_ID)
+      if (oldLabel) oldLabel.remove()
+
+      // 选中当前
+      path.classList.add(SELECTED_CLASS)
+      selectedProvinceId.value = id
+      selectedProvinceName.value = provinceIdToName[id] || ''
+
+      // 计算省份的中心坐标，在其上方创建一个带半透明背景的省份名称标签
+      const bbox = path.getBBox()
+      const cx = bbox.x + bbox.width / 2
+      const cy = bbox.y+20
+
+      // 创建分组元素作为标签容器，禁止鼠标事件以免影响地图交互
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+      group.setAttribute('id', LABEL_ID)
+      group.setAttribute('pointer-events', 'none')
+
+      // 创建文本元素显示省份中文名
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+      text.setAttribute('x', cx)
+      text.setAttribute('y', cy)
+      text.setAttribute('text-anchor', 'middle')
+      text.setAttribute('dominant-baseline', 'auto')
+      text.setAttribute('font-size', '18')
+      text.setAttribute('fill', '#fff')
+      text.textContent = selectedProvinceName.value
+
+      // 临时将文本添加到 SVG 中获取其渲染后的实际尺寸，然后立即移除
+      svg.appendChild(text)
+      const textBBox = text.getBBox()
+      text.remove()
+
+      // 根据文本尺寸加上内边距，创建半透明黑色圆角矩形作为文字背景
+      const padX = 8
+      const padY = 4
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('x', textBBox.x - padX)
+      rect.setAttribute('y', textBBox.y - padY)
+      rect.setAttribute('width', textBBox.width + padX * 2)
+      rect.setAttribute('height', textBBox.height + padY * 2)
+      rect.setAttribute('rx', '4')
+      rect.setAttribute('ry', '4')
+      rect.setAttribute('fill', 'rgba(0, 0, 0, 0.65)')
+
+      group.appendChild(rect)
+      group.appendChild(text)
+      svg.appendChild(group)
+    })
+  })
+})
+</script>
+
+<template>
+  <!-- 左侧固定面板：上方显示项目进度图表，下方显示监理人员分布饼状图 -->
+  <div class="side-boxes left-boxes">
+    <div class="side-box">
+      <ProgressChart :projects="projects" />
+    </div>
+    <div class="side-box">
+      <SupervisorChart :supervisorList="supervisorList" />
+    </div>
+  </div>
+  <!-- 右侧固定面板：上方预留空位，下方显示人员分布饼状图 -->
+  <div class="side-boxes right-boxes">
+    <div class="side-box"></div>
+    <div class="side-box">
+      <StaffChart :staffList="staffList" />
+    </div>
+  </div>
+
+  <!-- 页面主体：中央区域渲染中国地图 SVG -->
+  <header>
+    <div class="china-map" v-html="chinaMapSvg"></div>
+  </header>
+</template>
+
+<style scoped>
+/* stylelint-disable selector-pseudo-class-no-unknown */
+/* 左右两侧固定面板容器：垂直居中排列两个蓝色方框 */
+.side-boxes {
+  position: fixed;
+  top: 56px;
+  bottom: 0;
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  z-index: 999;
+}
+
+/* 左侧面板靠左定位 */
+.left-boxes {
+  left: 0;
+}
+
+/* 右侧面板靠右定位 */
+.right-boxes {
+  right: 0;
+}
+
+/* 单个蓝色半透明方框样式，用于容纳图表组件 */
+  .side-box {
+    width: 100%;
+    height: 360px;
+    background-color: rgba(51, 153, 255, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    border-radius: 8px;
+  }
+
+/* 页面头部区域，用于放置中国地图 */
+header {
+  grid-column: 1 / -1;
+  margin-top: 56px;
+}
+
+/* 中国地图容器：水平居中，限制最大宽度 */
+.china-map {
+  width: 90vw;
+  max-width: 600px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+/* 使内嵌 SVG 自适应容器宽度 */
+.china-map :deep(svg) {
+  width: 100%;
+  height: auto;
+}
+
+/* 省份 path 元素：鼠标变为手型，填充色平滑过渡 */
+.china-map :deep(.land) {
+  cursor: pointer;
+  transition: fill 0.2s;
+}
+
+/* 鼠标悬停时省份高亮为蓝色 */
+.china-map :deep(.land:hover) {
+  fill: #3b82f6;
+}
+
+/* 被选中的省份强制蓝色填充 */
+.china-map :deep(.land-selected) {
+  fill: #3b82f6 !important;
+}
+
+/* 项目标记圆点添加红色发光阴影效果 */
+.china-map :deep(#project-dots-group circle) {
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+}
+</style>

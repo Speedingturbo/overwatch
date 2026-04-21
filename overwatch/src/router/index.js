@@ -19,6 +19,11 @@ const router = createRouter({
       name: 'hse',
       component: () => import('../views/hsepage.vue'),
     },
+    {
+      path: '/text',
+      name: 'text',
+      component: () => import('../views/textpage.vue'),
+    },
   ],
 })
 

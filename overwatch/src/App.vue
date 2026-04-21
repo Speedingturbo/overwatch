@@ -17,7 +17,7 @@ function openBlankPage() {
     </div>
     <div class="navbar-title">监理管理平台</div>
     <div class="navbar-right">
-      <button class="navbar-btn">文本分析</button>
+      <button class="navbar-btn" @click="router.push('/text')">文本分析</button>
       <button class="navbar-btn" @click="openBlankPage">系统设置</button>
     </div>
   </nav>

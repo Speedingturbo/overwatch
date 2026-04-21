@@ -1,0 +1,99 @@
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+
+const props = defineProps({
+  supervisorList: {
+    type: Array,
+    default: () => []
+  }
+})
+
+let chartInstance = null
+const chartRef = ref(null)
+
+const projectStats = computed(() => {
+  const map = {}
+  props.supervisorList.forEach(s => {
+    const proj = s.project || '未分配'
+    map[proj] = (map[proj] || 0) + 1
+  })
+  return Object.entries(map).map(([name, value]) => ({ name, value }))
+})
+
+function ensureChart() {
+  if (!chartInstance && chartRef.value) {
+    chartInstance = echarts.init(chartRef.value)
+  }
+}
+
+function updateChart() {
+  ensureChart()
+  if (!chartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: {
+      orient: 'vertical',
+      right: 8,
+      top: 'center',
+      textStyle: { color: '#333', fontSize: 11 }
+    },
+    series: [{
+      name: '项目监理人员分布',
+      type: 'pie',
+      radius: ['20%', '42%'],
+      center: ['35%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 4, borderColor: 'transparent', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333',
+        fontSize: 10,
+        overflow: 'truncate',
+        ellipsis: '...'
+      },
+      labelLine: {
+        length: 8,
+        length2: 6
+      },
+      emphasis: { label: { show: true, formatter: '{b}\n{c}人', color: '#333', fontSize: 11 } },
+      data: projectStats.value
+    }],
+    backgroundColor: 'transparent'
+  }
+  chartInstance.setOption(option, true)
+}
+
+function handleResize() {
+  chartInstance && chartInstance.resize()
+}
+
+watch(() => props.supervisorList, () => {
+  nextTick(() => updateChart())
+}, { deep: true })
+
+onMounted(() => {
+  nextTick(() => updateChart())
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+})
+</script>
+
+<template>
+  <div ref="chartRef" class="supervisor-chart"></div>
+</template>
+
+<style scoped>
+.supervisor-chart {
+  width: 100%;
+  height: 100%;
+}
+</style>

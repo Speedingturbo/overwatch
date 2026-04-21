@@ -1,0 +1,129 @@
+﻿<script setup>
+import { ref } from 'vue'
+
+const activeTab = ref('daily')
+
+const tabs = [
+  { key: 'daily', label: '监理日志管理' },
+  { key: 'weekly', label: '监理周报管理' },
+  { key: 'monthly', label: '监理月报管理' },
+  { key: 'generate', label: '文本生成' },
+]
+</script>
+
+<template>
+  <div class="page-layout">
+    <aside class="sidebar">
+      <ul class="sidebar-nav">
+        <li
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['sidebar-item', { active: activeTab === tab.key }]"
+          @click="activeTab = tab.key"
+        >{{ tab.label }}</li>
+      </ul>
+    </aside>
+
+    <div class="main-content">
+      <h2 class="page-title">{{ tabs.find(t => t.key === activeTab)?.label }}</h2>
+
+      <div v-show="activeTab === 'daily'" class="placeholder-section">
+        <div class="placeholder-icon">📋</div>
+        <p class="placeholder-text">监理日志管理功能开发中…</p>
+      </div>
+
+      <div v-show="activeTab === 'weekly'" class="placeholder-section">
+        <div class="placeholder-icon">📊</div>
+        <p class="placeholder-text">监理周报管理功能开发中…</p>
+      </div>
+
+      <div v-show="activeTab === 'monthly'" class="placeholder-section">
+        <div class="placeholder-icon">📅</div>
+        <p class="placeholder-text">监理月报管理功能开发中…</p>
+      </div>
+
+      <div v-show="activeTab === 'generate'" class="placeholder-section">
+        <div class="placeholder-icon">✏️</div>
+        <p class="placeholder-text">文本生成功能开发中…</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page-layout {
+  display: flex;
+  height: 100vh;
+  padding-top: 56px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sidebar {
+  width: 180px;
+  min-width: 180px;
+  background-color: #1e3a5f;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-item {
+  padding: 16px 24px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-item.active {
+  background-color: rgba(51, 153, 255, 0.3);
+  border-left-color: #3398db;
+  font-weight: 600;
+}
+
+.main-content {
+  flex: 1;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #1e3a5f;
+}
+
+.placeholder-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 100px;
+}
+
+.placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.placeholder-text {
+  font-size: 16px;
+  color: #999;
+}
+</style>

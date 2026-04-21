@@ -1,0 +1,49 @@
+import { Router } from 'express'
+import db from '../db.js'
+
+const router = Router()
+
+// 获取班前教育（站例会）记录列表
+// 支持通过 ?project=xxx 查询参数按项目筛选，不传则返回全部记录
+router.get('/', (req, res) => {
+  if (req.query.project) {
+    const rows = db.prepare('SELECT * FROM preshift WHERE project = ?').all(req.query.project)
+    res.json(rows)
+  } else {
+    const rows = db.prepare('SELECT * FROM preshift').all()
+    res.json(rows)
+  }
+})
+
+// 新增一条站例会记录
+// 请求体参数：project（项目名）、date（日期）、host（会议主持人）、status（例会召开情况）
+router.post('/', (req, res) => {
+  const { project, date, host, status } = req.body
+  if (!project) return res.status(400).json({ error: 'Missing project' })
+  const info = db.prepare(
+    'INSERT INTO preshift (project, date, host, status) VALUES (?, ?, ?, ?)'
+  ).run(project, date || '', host || '', status || '')
+  // 插入成功后查询并返回新记录
+  const row = db.prepare('SELECT * FROM preshift WHERE id = ?').get(Number(info.lastInsertRowid))
+  res.json(row)
+})
+
+// 编辑指定 ID 的站例会记录
+// 请求体参数：date（日期）、host（会议主持人）、status（例会召开情况）
+router.put('/:id', (req, res) => {
+  const { date, host, status } = req.body
+  db.prepare(
+    'UPDATE preshift SET date = ?, host = ?, status = ? WHERE id = ?'
+  ).run(date || '', host || '', status || '', req.params.id)
+  // 更新成功后查询并返回最新记录
+  const row = db.prepare('SELECT * FROM preshift WHERE id = ?').get(req.params.id)
+  res.json(row)
+})
+
+// 删除指定 ID 的站例会记录
+router.delete('/:id', (req, res) => {
+  db.prepare('DELETE FROM preshift WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
+export default router

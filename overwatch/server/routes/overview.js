@@ -1,0 +1,51 @@
+import { Router } from 'express'
+import db from '../db.js'
+
+const router = Router()
+
+router.get('/', (req, res) => {
+  const rows = db.prepare('SELECT * FROM overview').all()
+  res.json(rows)
+})
+
+router.post('/', (req, res) => {
+  const { name, contractor, location } = req.body
+  if (!name || !contractor || !location) return res.status(400).json({ error: 'Missing fields' })
+  const info = db.prepare('INSERT INTO overview (name, contractor, location) VALUES (?, ?, ?)').run(name, contractor, location)
+  res.json({ id: Number(info.lastInsertRowid), name, contractor, location })
+})
+
+router.put('/:id', (req, res) => {
+  const { name, contractor, location, oldName } = req.body
+  if (!name || !contractor || !location) return res.status(400).json({ error: 'Missing fields' })
+  db.prepare('UPDATE overview SET name = ?, contractor = ?, location = ? WHERE id = ?').run(name, contractor, location, req.params.id)
+  if (oldName && oldName !== name) {
+    db.prepare('UPDATE projects SET name = ? WHERE name = ?').run(name, oldName)
+    db.prepare('UPDATE staff SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE supervisors SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE risks SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE quality SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE hazards SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE preshift SET project = ? WHERE project = ?').run(name, oldName)
+    db.prepare('UPDATE files SET project = ? WHERE project = ?').run(name, oldName)
+  }
+  res.json({ id: Number(req.params.id), name, contractor, location })
+})
+
+router.delete('/:id', (req, res) => {
+  const row = db.prepare('SELECT name FROM overview WHERE id = ?').get(req.params.id)
+  if (row) {
+    db.prepare('DELETE FROM projects WHERE name = ?').run(row.name)
+    db.prepare('DELETE FROM staff WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM supervisors WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM risks WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM quality WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM hazards WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM preshift WHERE project = ?').run(row.name)
+    db.prepare('DELETE FROM files WHERE project = ?').run(row.name)
+  }
+  db.prepare('DELETE FROM overview WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
+export default router

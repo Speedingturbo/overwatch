@@ -1,0 +1,118 @@
+﻿import Database from 'better-sqlite3'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const dbPath = join(__dirname, 'data.db')
+
+// Ensure uploads directory exists
+const uploadsDir = join(__dirname, 'uploads')
+if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
+
+const db = new Database(dbPath)
+db.pragma('journal_mode = WAL')
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS overview (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    contractor TEXT NOT NULL,
+    location TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    progress REAL NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS staff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    name TEXT NOT NULL,
+    position TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    idCard TEXT NOT NULL,
+    cert TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS supervisors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    attendance INTEGER DEFAULT 0,
+    lastCheckIn TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS risks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    description TEXT NOT NULL,
+    discoverTime TEXT DEFAULT '',
+    discoverPlace TEXT DEFAULT '',
+    level TEXT NOT NULL,
+    photo TEXT DEFAULT '',
+    measure TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS quality (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    date TEXT DEFAULT '',
+    rebarPhoto TEXT DEFAULT '',
+    rebarContent TEXT DEFAULT '',
+    wiringPhoto TEXT DEFAULT '',
+    wiringContent TEXT DEFAULT '',
+    equipmentPhoto TEXT DEFAULT '',
+    equipmentContent TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS hazards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT DEFAULT '',
+    hazardType TEXT NOT NULL,
+    possibleAccident TEXT DEFAULT '',
+    controlMeasure TEXT DEFAULT '',
+    level TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS preshift (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    date TEXT DEFAULT '',
+    host TEXT DEFAULT '',
+    status TEXT DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mimetype TEXT NOT NULL,
+    data BLOB NOT NULL,
+    uploadTime TEXT DEFAULT ''
+  );
+`)
+
+/**
+ * Save a base64 data-URL image to the uploads directory.
+ * Returns the public path (e.g. /uploads/xxx.jpg).
+ * If the input is already a path or empty, it is returned unchanged.
+ */
+export function saveBase64Photo(base64Str) {
+  if (!base64Str) return ''
+  if (!base64Str.startsWith('data:')) return base64Str
+  const match = base64Str.match(/^data:image\/([^;]+);base64,(.+)$/)
+  if (!match) return ''
+  const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+  const data = Buffer.from(match[2], 'base64')
+  const filename = Date.now() + '-' + Math.random().toString(36).slice(2, 10) + '.' + ext
+  writeFileSync(join(uploadsDir, filename), data)
+  return '/uploads/' + filename
+}
+
+export default db
