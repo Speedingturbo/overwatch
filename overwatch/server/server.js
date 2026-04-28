@@ -3,6 +3,7 @@ import cors from 'cors'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
+import authRouter from './routes/auth.js'
 import overviewRouter from './routes/overview.js'
 import projectsRouter from './routes/projects.js'
 import staffRouter from './routes/staff.js'
@@ -11,6 +12,7 @@ import risksRouter from './routes/risks.js'
 import qualityRouter from './routes/quality.js'
 import hazardsRouter from './routes/hazards.js'
 import preshiftRouter from './routes/preshift.js'
+import deviceInspectionsRouter from './routes/deviceInspections.js'
 import filesRouter from './routes/files.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,6 +23,7 @@ app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use('/uploads', express.static(join(__dirname, 'uploads')))
 
+app.use('/api/auth', authRouter)
 app.use('/api/overview', overviewRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/staff', staffRouter)
@@ -29,6 +32,7 @@ app.use('/api/risks', risksRouter)
 app.use('/api/quality', qualityRouter)
 app.use('/api/hazards', hazardsRouter)
 app.use('/api/preshift', preshiftRouter)
+app.use('/api/device-inspections', deviceInspectionsRouter)
 app.use('/api/files', filesRouter)
 
 app.listen(PORT, () => {

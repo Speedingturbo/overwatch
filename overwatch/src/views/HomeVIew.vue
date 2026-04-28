@@ -1,11 +1,10 @@
 <script setup>
 // 引入 Vue 组合式 API：onMounted（组件挂载后执行）、ref（响应式变量）
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 // 以原始字符串形式导入中国地图 SVG，用于页面中央的地图展示
 import chinaMapSvg from '../assets/china_map.svg?raw'
 // 引入三个图表子组件，分别展示项目进度、人员分布、监理人员分布
 import ProgressChart from '../components/ProgressChart.vue'
-import StaffChart from '../components/StaffChart.vue'
 import SupervisorChart from '../components/SupervisorChart.vue'
 import RiskBarChart from '../components/RiskBarChart.vue'
 
@@ -20,6 +19,36 @@ async function loadProjects() {
     projects.value = []
   }
 }
+
+// 从后端 API 加载文件管理数据
+const fileList = ref([])
+
+async function loadFiles() {
+  try {
+    const res = await fetch('/api/files')
+    fileList.value = await res.json()
+  } catch {
+    fileList.value = []
+  }
+}
+
+const fileCategorySummary = computed(() => {
+  const summaryMap = {}
+
+  fileList.value.forEach(file => {
+    const category = typeof file.category === 'string' ? file.category.trim() : ''
+    const name = category || '未分类'
+    summaryMap[name] = (summaryMap[name] || 0) + 1
+  })
+
+  return Object.entries(summaryMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+})
+
+const totalFileCount = computed(() => {
+  return fileList.value.length
+})
 
 // 从后端 API 加载项目概况数据
 const overviewList = ref([])
@@ -154,7 +183,7 @@ function renderProjectDots() {
 // 组件挂载后执行：并行加载所有后端数据，然后初始化地图交互
 onMounted(async () => {
   // 并行请求项目进度、项目概况、人员信息、监理人员四个接口，等待全部完成
-  await Promise.all([loadProjects(), loadOverview(), loadStaff(), loadSupervisors(), loadRisks()])
+  await Promise.all([loadProjects(), loadOverview(), loadStaff(), loadSupervisors(), loadRisks(), loadFiles()])
 
   // 获取页面中渲染的中国地图 SVG 元素
   const container = document.querySelector('.china-map')
@@ -271,8 +300,18 @@ onMounted(async () => {
     <div class="side-box">
       <RiskBarChart :riskList="riskList" :overviewList="overviewList" />
     </div>
-    <div class="side-box">
-      <StaffChart :staffList="staffList" />
+    <div class="side-box file-summary-box">
+      <div class="file-summary-header">
+        <span>文件数量管理</span>
+        <span class="file-summary-total">共 {{ totalFileCount }} 份</span>
+      </div>
+      <div v-if="fileCategorySummary.length" class="file-summary-content">
+        <div v-for="item in fileCategorySummary" :key="item.name" class="file-summary-item">
+          <span class="file-category-name">{{ item.name }}</span>
+          <span class="file-category-count">{{ item.count }} 份</span>
+        </div>
+      </div>
+      <div v-else class="file-summary-empty">暂无文件数据</div>
     </div>
   </div>
 
@@ -316,6 +355,66 @@ onMounted(async () => {
     border: 1px solid rgba(59, 130, 246, 0.5);
     border-radius: 8px;
   }
+
+.file-summary-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background-color: rgba(30, 58, 95, 0.6);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.file-summary-total {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.file-summary-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.file-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background-color: rgba(30, 58, 95, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #fff;
+}
+
+.file-category-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.file-category-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.file-summary-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
 
 /* 页面头部区域，用于放置中国地图 */
 header {

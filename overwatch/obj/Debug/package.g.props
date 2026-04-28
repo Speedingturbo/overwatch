@@ -13,6 +13,7 @@
     <PackageJsonScriptsLint Condition="$(PackageJsonScriptsLint) == ''">run-s lint:*</PackageJsonScriptsLint>
     <PackageJsonScriptsLintOxlint Condition="$(PackageJsonScriptsLintOxlint) == ''">oxlint . --fix</PackageJsonScriptsLintOxlint>
     <PackageJsonScriptsLintEslint Condition="$(PackageJsonScriptsLintEslint) == ''">eslint . --fix --cache</PackageJsonScriptsLintEslint>
+    <PackageJsonDependenciesBcryptjs Condition="$(PackageJsonDependenciesBcryptjs) == ''">^3.0.3</PackageJsonDependenciesBcryptjs>
     <PackageJsonDependenciesBetterSqlite3 Condition="$(PackageJsonDependenciesBetterSqlite3) == ''">^12.8.0</PackageJsonDependenciesBetterSqlite3>
     <PackageJsonDependenciesCors Condition="$(PackageJsonDependenciesCors) == ''">^2.8.6</PackageJsonDependenciesCors>
     <PackageJsonDependenciesEcharts Condition="$(PackageJsonDependenciesEcharts) == ''">^6.0.0</PackageJsonDependenciesEcharts>

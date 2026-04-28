@@ -12,7 +12,9 @@ function toFrontend(row) {
     discoverPlace: row.discoverPlace,
     level: row.level,
     photo: row.photo,
-    measure: row.measure
+    measure: row.measure,
+    processed: Boolean(row.processed),
+    workflowStep: row.workflowStep || 0
   }
 }
 
@@ -28,13 +30,13 @@ router.get('/', (req, res) => {
 })
 
 router.post('/', (req, res) => {
-  const { project, desc, discoverTime, discoverPlace, level, photo, measure } = req.body
+  const { project, desc, discoverTime, discoverPlace, level, photo, measure, processed } = req.body
   if (!project || !desc || !level) return res.status(400).json({ error: 'Missing fields' })
   const savedPhoto = saveBase64Photo(photo)
   const info = db.prepare(
-    'INSERT INTO risks (project, description, discoverTime, discoverPlace, level, photo, measure) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(project, desc, discoverTime || '', discoverPlace || '', level, savedPhoto, measure || '')
-  res.json({ id: Number(info.lastInsertRowid), project, desc, discoverTime: discoverTime || '', discoverPlace: discoverPlace || '', level, photo: savedPhoto, measure: measure || '' })
+    'INSERT INTO risks (project, description, discoverTime, discoverPlace, level, photo, measure, processed, workflowStep) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
+  ).run(project, desc, discoverTime || '', discoverPlace || '', level, savedPhoto, measure || '', processed ? 1 : 0)
+  res.json({ id: Number(info.lastInsertRowid), project, desc, discoverTime: discoverTime || '', discoverPlace: discoverPlace || '', level, photo: savedPhoto, measure: measure || '', processed: Boolean(processed), workflowStep: 0 })
 })
 
 router.put('/:id', (req, res) => {
@@ -46,6 +48,34 @@ router.put('/:id', (req, res) => {
   ).run(desc, discoverTime || '', discoverPlace || '', level, savedPhoto, measure || '', req.params.id)
   const row = db.prepare('SELECT * FROM risks WHERE id = ?').get(req.params.id)
   res.json(toFrontend(row))
+})
+
+router.put('/:id/process', (req, res) => {
+  const processed = req.body?.processed ? 1 : 0
+  db.prepare('UPDATE risks SET processed = ? WHERE id = ?').run(processed, req.params.id)
+  const row = db.prepare('SELECT * FROM risks WHERE id = ?').get(req.params.id)
+  res.json(toFrontend(row))
+})
+
+// Workflow steps: 0=未发起 1=监理工程师已发起 2=施工班组长已确认 3=施工经理已复核 4=监理工程师最终确认
+const WORKFLOW_ROLE_MAP = {
+  1: '监理工程师',
+  2: '施工班组长',
+  3: '项目经理',
+  4: '监理工程师'
+}
+
+router.put('/:id/workflow', (req, res) => {
+  const { step, userRole } = req.body
+  if (!step || !userRole) return res.status(400).json({ error: 'Missing step or userRole' })
+  const row = db.prepare('SELECT * FROM risks WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  const currentStep = row.workflowStep || 0
+  if (step !== currentStep + 1) return res.status(400).json({ error: '流程步骤不正确' })
+  if (WORKFLOW_ROLE_MAP[step] !== userRole) return res.status(403).json({ error: '无权限执行此步骤' })
+  db.prepare('UPDATE risks SET workflowStep = ? WHERE id = ?').run(step, req.params.id)
+  const updated = db.prepare('SELECT * FROM risks WHERE id = ?').get(req.params.id)
+  res.json(toFrontend(updated))
 })
 
 router.delete('/:id', (req, res) => {

@@ -1,6 +1,13 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import chinaMapSvg from '../assets/china_map.svg?raw'
+
+// 封装 HTTP 请求工具
+const api = {
+  get: (url) => fetch(url).then(r => r.json()),
+  post: (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  del: (url) => fetch(url, { method: 'DELETE' }).then(r => r.json())
+}
 
 // 从后端 API 加载项目概况数据（用于地图标记点）
 const overviewList = ref([])
@@ -11,6 +18,257 @@ async function loadOverview() {
     overviewList.value = await res.json()
   } catch {
     overviewList.value = []
+  }
+}
+
+// --- 监理日报管理模块 ---
+const fileList = ref([])  // 所有文件数据
+const dailyReportActiveProject = ref(null)  // 当前选中的项目
+const selectedDailyReportProvince = ref('')
+const weeklyReportActiveProject = ref(null)
+const selectedWeeklyReportProvince = ref('')
+const monthlyReportActiveProject = ref(null)
+const selectedMonthlyReportProvince = ref('')
+const provinceNameList = ref([])
+
+// 加载所有文件数据
+async function loadFiles() {
+  try {
+    fileList.value = await api.get('/api/files')
+  } catch {
+    fileList.value = []
+  }
+}
+
+// 筛选出所有监理日报
+const dailyReportList = computed(() => {
+  return fileList.value.filter(file => {
+    const category = typeof file.category === 'string' ? file.category.trim() : ''
+    return category === '监理日报'
+  })
+})
+
+// 计算每个项目的日报数量
+const dailyReportCountByProject = computed(() => {
+  const map = {}
+  dailyReportList.value.forEach(report => {
+    if (report.project) {
+      map[report.project] = (map[report.project] || 0) + 1
+    }
+  })
+  return map
+})
+
+function getProvinceByLocation(location) {
+  const loc = typeof location === 'string' ? location.trim() : ''
+  if (!loc) return ''
+
+  const province = provinceNameList.value.find(
+    name => loc.includes(name) || name.includes(loc)
+  )
+
+  return province || ''
+}
+
+const dailyReportProvinceOptions = computed(() => {
+  return [...new Set(
+    overviewList.value
+      .map(item => getProvinceByLocation(item.location))
+      .filter(Boolean)
+  )]
+})
+
+const weeklyReportProvinceOptions = computed(() => {
+  return [...new Set(
+    overviewList.value
+      .map(item => getProvinceByLocation(item.location))
+      .filter(Boolean)
+  )]
+})
+
+const monthlyReportProvinceOptions = computed(() => {
+  return [...new Set(
+    overviewList.value
+      .map(item => getProvinceByLocation(item.location))
+      .filter(Boolean)
+  )]
+})
+
+const filteredDailyReportProjects = computed(() => {
+  if (!selectedDailyReportProvince.value) return overviewList.value
+
+  return overviewList.value.filter(item => {
+    return getProvinceByLocation(item.location) === selectedDailyReportProvince.value
+  })
+})
+
+const filteredWeeklyReportProjects = computed(() => {
+  if (!selectedWeeklyReportProvince.value) return overviewList.value
+
+  return overviewList.value.filter(item => {
+    return getProvinceByLocation(item.location) === selectedWeeklyReportProvince.value
+  })
+})
+
+const filteredMonthlyReportProjects = computed(() => {
+  if (!selectedMonthlyReportProvince.value) return overviewList.value
+
+  return overviewList.value.filter(item => {
+    return getProvinceByLocation(item.location) === selectedMonthlyReportProvince.value
+  })
+})
+
+// 筛选当前项目的日报
+const dailyReportForProject = computed(() => {
+  if (!dailyReportActiveProject.value) return []
+  return dailyReportList.value.filter(
+    report => report.project === dailyReportActiveProject.value
+  )
+})
+
+const weeklyReportList = computed(() => {
+  return fileList.value.filter(file => {
+    const category = typeof file.category === 'string' ? file.category.trim() : ''
+    return category === '监理周报'
+  })
+})
+
+const weeklyReportCountByProject = computed(() => {
+  const map = {}
+  weeklyReportList.value.forEach(report => {
+    if (report.project) {
+      map[report.project] = (map[report.project] || 0) + 1
+    }
+  })
+  return map
+})
+
+const weeklyReportForProject = computed(() => {
+  if (!weeklyReportActiveProject.value) return []
+  return weeklyReportList.value.filter(
+    report => report.project === weeklyReportActiveProject.value
+  )
+})
+
+const monthlyReportList = computed(() => {
+  return fileList.value.filter(file => {
+    const category = typeof file.category === 'string' ? file.category.trim() : ''
+    return category === '监理月报'
+  })
+})
+
+const monthlyReportCountByProject = computed(() => {
+  const map = {}
+  monthlyReportList.value.forEach(report => {
+    if (report.project) {
+      map[report.project] = (map[report.project] || 0) + 1
+    }
+  })
+  return map
+})
+
+const monthlyReportForProject = computed(() => {
+  if (!monthlyReportActiveProject.value) return []
+  return monthlyReportList.value.filter(
+    report => report.project === monthlyReportActiveProject.value
+  )
+})
+
+// 进入项目日报详情
+function enterDailyReportProject(projectName) {
+  dailyReportActiveProject.value = projectName
+}
+
+// 返回项目列表
+function backToDailyReportList() {
+  dailyReportActiveProject.value = null
+}
+
+function enterWeeklyReportProject(projectName) {
+  weeklyReportActiveProject.value = projectName
+}
+
+function backToWeeklyReportList() {
+  weeklyReportActiveProject.value = null
+}
+
+function enterMonthlyReportProject(projectName) {
+  monthlyReportActiveProject.value = projectName
+}
+
+function backToMonthlyReportList() {
+  monthlyReportActiveProject.value = null
+}
+
+watch(selectedDailyReportProvince, () => {
+  if (!dailyReportActiveProject.value) return
+
+  const existsInFilteredProjects = filteredDailyReportProjects.value.some(
+    item => item.name === dailyReportActiveProject.value
+  )
+
+  if (!existsInFilteredProjects) {
+    dailyReportActiveProject.value = null
+  }
+})
+
+watch(selectedWeeklyReportProvince, () => {
+  if (!weeklyReportActiveProject.value) return
+
+  const existsInFilteredProjects = filteredWeeklyReportProjects.value.some(
+    item => item.name === weeklyReportActiveProject.value
+  )
+
+  if (!existsInFilteredProjects) {
+    weeklyReportActiveProject.value = null
+  }
+})
+
+watch(selectedMonthlyReportProvince, () => {
+  if (!monthlyReportActiveProject.value) return
+
+  const existsInFilteredProjects = filteredMonthlyReportProjects.value.some(
+    item => item.name === monthlyReportActiveProject.value
+  )
+
+  if (!existsInFilteredProjects) {
+    monthlyReportActiveProject.value = null
+  }
+})
+
+// 下载日报文件
+function downloadDailyReport(report) {
+  const a = document.createElement('a')
+  a.href = '/api/files/' + report.id + '/download'
+  a.download = report.filename || '监理日报.pdf'
+  a.click()
+}
+
+function downloadWeeklyReport(report) {
+  const a = document.createElement('a')
+  a.href = '/api/files/' + report.id + '/download'
+  a.download = report.filename || '监理周报.pdf'
+  a.click()
+}
+
+function downloadMonthlyReport(report) {
+  const a = document.createElement('a')
+  a.href = '/api/files/' + report.id + '/download'
+  a.download = report.filename || '监理月报.pdf'
+  a.click()
+}
+
+// 删除日报
+async function removeDailyReport(index) {
+  const report = dailyReportForProject.value[index]
+  try {
+    await api.del('/api/files/' + report.id)
+    const realIndex = fileList.value.findIndex(f => f.id === report.id)
+    if (realIndex !== -1) {
+      fileList.value.splice(realIndex, 1)
+    }
+  } catch (error) {
+    console.error('删除日报失败', error)
   }
 }
 
@@ -87,6 +345,7 @@ function renderProjectDots() {
 
 onMounted(async () => {
   await loadOverview()
+  await loadFiles()
 
   const container = document.querySelector('.china-map')
   if (!container) return
@@ -102,6 +361,8 @@ onMounted(async () => {
       provinceNameToPath[name] = path
     }
   })
+
+  provinceNameList.value = Object.keys(provinceNameToPath)
 
   renderProjectDots()
 
@@ -181,17 +442,104 @@ onMounted(async () => {
   <!-- 左侧固定面板：监理日报管理 + 监理周报管理 -->
   <div class="side-boxes left-boxes">
     <div class="side-box">
-      <div class="box-title">监理日报管理</div>
-      <div class="box-placeholder">
-        <div class="placeholder-icon">📋</div>
-        <p class="placeholder-text">监理日报管理功能开发中…</p>
+      <div class="box-title box-title-with-filter">
+        <span>监理日报管理</span>
+        <select v-model="selectedDailyReportProvince" class="province-filter">
+          <option value="">全部省份</option>
+          <option v-for="province in dailyReportProvinceOptions" :key="province" :value="province">{{ province }}</option>
+        </select>
+      </div>
+      
+      <!-- 一级：项目列表 -->
+      <div v-if="!dailyReportActiveProject" class="box-content">
+        <div v-if="filteredDailyReportProjects.length" class="report-table-wrapper">
+          <table class="report-table">
+            <tbody>
+              <tr v-for="ov in filteredDailyReportProjects" :key="ov.name">
+                <td class="project-name" @click="enterDailyReportProject(ov.name)">{{ ov.name }}</td>
+                <td>{{ dailyReportCountByProject[ov.name] || 0 }} 份</td>
+                <td>
+                  <button class="view-btn" @click="enterDailyReportProject(ov.name)">查看日报</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="box-placeholder">
+          <div class="placeholder-icon">📋</div>
+          <p class="placeholder-text">当前省份暂无项目数据</p>
+        </div>
+      </div>
+
+      <!-- 二级：项目日报详情 -->
+      <div v-else class="box-content">
+        <div class="report-header">
+          <button class="back-btn" @click="backToDailyReportList">← 返回</button>
+          <h3 class="report-project-title">{{ dailyReportActiveProject }}</h3>
+        </div>
+        
+        <div v-if="dailyReportForProject.length" class="report-list">
+          <div v-for="report in dailyReportForProject" :key="report.id" class="report-item">
+            <div class="report-info">
+              <div class="report-date">{{ report.uploadTime || '未知日期' }}</div>
+              <div class="report-filename">{{ report.filename || '监理日报' }}</div>
+            </div>
+            <div class="report-actions">
+              <button class="download-btn" @click="downloadDailyReport(report)">下载</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-message">该项目暂无日报</div>
       </div>
     </div>
+
     <div class="side-box">
-      <div class="box-title">监理周报管理</div>
-      <div class="box-placeholder">
-        <div class="placeholder-icon">📊</div>
-        <p class="placeholder-text">监理周报管理功能开发中…</p>
+      <div class="box-title box-title-with-filter">
+        <span>监理周报管理</span>
+        <select v-model="selectedWeeklyReportProvince" class="province-filter">
+          <option value="">全部省份</option>
+          <option v-for="province in weeklyReportProvinceOptions" :key="province" :value="province">{{ province }}</option>
+        </select>
+      </div>
+
+      <div v-if="!weeklyReportActiveProject" class="box-content">
+        <div v-if="filteredWeeklyReportProjects.length" class="report-table-wrapper">
+          <table class="report-table">
+            <tbody>
+              <tr v-for="ov in filteredWeeklyReportProjects" :key="ov.name">
+                <td class="project-name" @click="enterWeeklyReportProject(ov.name)">{{ ov.name }}</td>
+                <td>{{ weeklyReportCountByProject[ov.name] || 0 }} 份</td>
+                <td>
+                  <button class="view-btn" @click="enterWeeklyReportProject(ov.name)">查看周报</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="box-placeholder">
+          <div class="placeholder-icon">📊</div>
+          <p class="placeholder-text">当前省份暂无项目数据</p>
+        </div>
+      </div>
+
+      <div v-else class="box-content">
+        <div class="report-header">
+          <button class="back-btn" @click="backToWeeklyReportList">← 返回</button>
+          <h3 class="report-project-title">{{ weeklyReportActiveProject }}</h3>
+        </div>
+
+        <div v-if="weeklyReportForProject.length" class="report-list">
+          <div v-for="report in weeklyReportForProject" :key="report.id" class="report-item">
+            <div class="report-info">
+              <div class="report-date">{{ report.uploadTime || '未知日期' }}</div>
+              <div class="report-filename">{{ report.filename || '监理周报' }}</div>
+            </div>
+            <div class="report-actions">
+              <button class="download-btn" @click="downloadWeeklyReport(report)">下载</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-message">该项目暂无周报</div>
       </div>
     </div>
   </div>
@@ -199,10 +547,52 @@ onMounted(async () => {
   <!-- 右侧固定面板：监理月报管理 + 文本生成 -->
   <div class="side-boxes right-boxes">
     <div class="side-box">
-      <div class="box-title">监理月报管理</div>
-      <div class="box-placeholder">
-        <div class="placeholder-icon">📅</div>
-        <p class="placeholder-text">监理月报管理功能开发中…</p>
+      <div class="box-title box-title-with-filter">
+        <span>监理月报管理</span>
+        <select v-model="selectedMonthlyReportProvince" class="province-filter">
+          <option value="">全部省份</option>
+          <option v-for="province in monthlyReportProvinceOptions" :key="province" :value="province">{{ province }}</option>
+        </select>
+      </div>
+
+      <div v-if="!monthlyReportActiveProject" class="box-content">
+        <div v-if="filteredMonthlyReportProjects.length" class="report-table-wrapper">
+          <table class="report-table">
+            <tbody>
+              <tr v-for="ov in filteredMonthlyReportProjects" :key="ov.name">
+                <td class="project-name" @click="enterMonthlyReportProject(ov.name)">{{ ov.name }}</td>
+                <td>{{ monthlyReportCountByProject[ov.name] || 0 }} 份</td>
+                <td>
+                  <button class="view-btn" @click="enterMonthlyReportProject(ov.name)">查看月报</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="box-placeholder">
+          <div class="placeholder-icon">📅</div>
+          <p class="placeholder-text">当前省份暂无项目数据</p>
+        </div>
+      </div>
+
+      <div v-else class="box-content">
+        <div class="report-header">
+          <button class="back-btn" @click="backToMonthlyReportList">← 返回</button>
+          <h3 class="report-project-title">{{ monthlyReportActiveProject }}</h3>
+        </div>
+
+        <div v-if="monthlyReportForProject.length" class="report-list">
+          <div v-for="report in monthlyReportForProject" :key="report.id" class="report-item">
+            <div class="report-info">
+              <div class="report-date">{{ report.uploadTime || '未知日期' }}</div>
+              <div class="report-filename">{{ report.filename || '监理月报' }}</div>
+            </div>
+            <div class="report-actions">
+              <button class="download-btn" @click="downloadMonthlyReport(report)">下载</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-message">该项目暂无月报</div>
       </div>
     </div>
     <div class="side-box">
@@ -265,6 +655,35 @@ onMounted(async () => {
   border-bottom: 1px solid rgba(59, 130, 246, 0.4);
 }
 
+.box-title-with-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.province-filter {
+  min-width: 110px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #fff;
+  background-color: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(147, 197, 253, 0.5);
+  border-radius: 4px;
+  outline: none;
+}
+
+.province-filter option {
+  color: #000;
+}
+
+.box-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .box-placeholder {
   flex: 1;
   display: flex;
@@ -282,6 +701,169 @@ onMounted(async () => {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.6);
   margin: 0;
+}
+
+/* 日报表格样式 */
+.report-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.report-table th {
+  background-color: rgba(30, 58, 95, 0.5);
+  color: #000;
+  padding: 8px 6px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.report-table td {
+  padding: 8px 6px;
+  color: #000;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.report-table tbody tr:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.project-name {
+  cursor: pointer;
+  color: #000;
+  text-decoration: underline;
+}
+
+.project-name:hover {
+  color: #333;
+}
+
+.view-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background-color: rgba(59, 130, 246, 0.8);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.view-btn:hover {
+  background-color: rgba(59, 130, 246, 1);
+}
+
+/* 日报详情页样式 */
+.report-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.back-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background-color: rgba(100, 116, 139, 0.6);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.back-btn:hover {
+  background-color: rgba(100, 116, 139, 0.8);
+}
+
+.report-project-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #000;
+}
+
+.report-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.report-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background-color: rgba(30, 58, 95, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  transition: background-color 0.2s;
+}
+
+.report-item:hover {
+  background-color: rgba(30, 58, 95, 0.5);
+}
+
+.report-info {
+  flex: 1;
+}
+
+.report-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000;
+  margin-bottom: 4px;
+}
+
+.report-filename {
+  font-size: 12px;
+  color: #333;
+}
+
+.report-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.download-btn,
+.delete-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.download-btn {
+  background-color: rgba(34, 197, 94, 0.8);
+  color: #fff;
+}
+
+.download-btn:hover {
+  background-color: rgba(34, 197, 94, 1);
+}
+
+.delete-btn {
+  background-color: rgba(239, 68, 68, 0.8);
+  color: #fff;
+}
+
+.delete-btn:hover {
+  background-color: rgba(239, 68, 68, 1);
+}
+
+.empty-message {
+  padding: 20px;
+  text-align: center;
+  color: #000;
+  font-size: 13px;
 }
 
 /* 页面头部区域，用于放置中国地图 */
@@ -326,3 +908,4 @@ header {
   filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
 }
 </style>
+

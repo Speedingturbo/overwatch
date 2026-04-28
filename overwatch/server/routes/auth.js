@@ -1,0 +1,204 @@
+import { Router } from 'express'
+import bcrypt from 'bcryptjs'
+import db from '../db.js'
+
+const router = Router()
+
+const BCRYPT_ROUNDS = 10
+
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
+  const { username, realName, phone, password } = req.body
+
+  if (!username?.trim() || !realName?.trim() || !phone?.trim() || !password) {
+    return res.status(400).json({ error: '请完整填写注册信息' })
+  }
+
+  if (!/^1\d{10}$/.test(phone.trim())) {
+    return res.status(400).json({ error: '请输入有效的11位手机号' })
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: '密码长度不能少于6位' })
+  }
+
+  const existingUsername = db.prepare('SELECT id FROM users WHERE username = ?').get(username.trim())
+  if (existingUsername) {
+    return res.status(409).json({ error: '该账号已存在' })
+  }
+
+  const existingPhone = db.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim())
+  if (existingPhone) {
+    return res.status(409).json({ error: '该手机号已被注册' })
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
+
+    const result = db.prepare(
+      'INSERT INTO users (username, real_name, phone, password_hash) VALUES (?, ?, ?, ?)'
+    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash)
+
+    return res.status(201).json({
+      id: result.lastInsertRowid,
+      username: username.trim(),
+      realName: realName.trim(),
+      phone: phone.trim(),
+    })
+  } catch (err) {
+    console.error('Register error:', err)
+    return res.status(500).json({ error: '注册失败，请稍后重试' })
+  }
+})
+
+// POST /api/auth/login
+router.post('/login', async (req, res) => {
+  const { username, password } = req.body
+
+  if (!username?.trim() || !password) {
+    return res.status(400).json({ error: '请输入账号和密码' })
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim())
+
+  if (!user) {
+    return res.status(401).json({ error: '账号不存在，请先注册' })
+  }
+
+  try {
+    const match = await bcrypt.compare(password, user.password_hash)
+    if (!match) {
+      return res.status(401).json({ error: '密码错误' })
+    }
+
+    return res.json({
+      id: user.id,
+      username: user.username,
+      realName: user.real_name,
+      phone: user.phone,
+      createdAt: user.created_at,
+      isAdmin: Boolean(user.is_admin),
+      role: user.role || '',
+    })
+  } catch (err) {
+    console.error('Login error:', err)
+    return res.status(500).json({ error: '登录失败，请稍后重试' })
+  }
+})
+
+// POST /api/auth/users — 管理员创建账号
+router.post('/users', async (req, res) => {
+  const adminId = req.headers['x-admin-id']
+  if (!adminId) return res.status(403).json({ error: '无权限' })
+  const admin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(adminId)
+  if (!admin || !admin.is_admin) return res.status(403).json({ error: '无管理员权限' })
+
+  const { username, realName, phone, role, isAdmin } = req.body
+  if (!username?.trim() || !realName?.trim() || !phone?.trim()) {
+    return res.status(400).json({ error: '账号名、姓名和联系方式为必填项' })
+  }
+  if (!/^1\d{10}$/.test(phone.trim())) {
+    return res.status(400).json({ error: '请输入有效的11位手机号' })
+  }
+  const existingUsername = db.prepare('SELECT id FROM users WHERE username = ?').get(username.trim())
+  if (existingUsername) return res.status(409).json({ error: '该账号名已存在' })
+  const existingPhone = db.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim())
+  if (existingPhone) return res.status(409).json({ error: '该手机号已被注册' })
+
+  try {
+    // 默认密码为手机号后6位
+    const defaultPassword = phone.trim().slice(-6)
+    const passwordHash = await bcrypt.hash(defaultPassword, BCRYPT_ROUNDS)
+    const result = db.prepare(
+      'INSERT INTO users (username, real_name, phone, password_hash, role, is_admin) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash, (role || '').trim(), isAdmin ? 1 : 0)
+    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users WHERE id = ?').get(result.lastInsertRowid)
+    return res.status(201).json(user)
+  } catch (err) {
+    console.error('Create user error:', err)
+    return res.status(500).json({ error: '创建失败，请稍后重试' })
+  }
+})
+
+// GET /api/auth/users — 获取所有注册账号（不返回密码）
+router.get('/users', (req, res) => {
+  const users = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users ORDER BY id ASC').all()
+  return res.json(users)
+})
+
+// PUT /api/auth/users/:id — 编辑账号名和/或密码、角色
+router.put('/users/:id', async (req, res) => {
+  const { id } = req.params
+  const { username, password, role } = req.body
+
+  if (!username?.trim()) {
+    return res.status(400).json({ error: '账号名不能为空' })
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username.trim(), id)
+  if (existing) {
+    return res.status(409).json({ error: '该账号名已被使用' })
+  }
+
+  try {
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: '密码长度不能少于6位' })
+      }
+      const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
+      db.prepare('UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?').run(username.trim(), passwordHash, (role ?? '').trim(), id)
+    } else {
+      db.prepare('UPDATE users SET username = ?, role = ? WHERE id = ?').run(username.trim(), (role ?? '').trim(), id)
+    }
+
+    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users WHERE id = ?').get(id)
+    return res.json(user)
+  } catch (err) {
+    console.error('Update user error:', err)
+    return res.status(500).json({ error: '更新失败，请稍后重试' })
+  }
+})
+
+// DELETE /api/auth/users/:id — 删除账号（仅管理员）
+router.delete('/users/:id', (req, res) => {
+  const { id } = req.params
+  const adminId = req.headers['x-admin-id']
+
+  if (!adminId) {
+    return res.status(403).json({ error: '无权限' })
+  }
+
+  const admin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(adminId)
+  if (!admin || !admin.is_admin) {
+    return res.status(403).json({ error: '无管理员权限' })
+  }
+
+  if (String(id) === String(adminId)) {
+    return res.status(400).json({ error: '不能删除自己的账号' })
+  }
+
+  db.prepare('DELETE FROM users WHERE id = ?').run(id)
+  return res.json({ success: true })
+})
+
+// PUT /api/auth/users/:id/role — 切换管理员权限（仅管理员）
+router.put('/users/:id/role', (req, res) => {
+  const { id } = req.params
+  const { isAdmin } = req.body
+  const adminId = req.headers['x-admin-id']
+
+  if (!adminId) {
+    return res.status(403).json({ error: '无权限' })
+  }
+
+  const admin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(adminId)
+  if (!admin || !admin.is_admin) {
+    return res.status(403).json({ error: '无管理员权限' })
+  }
+
+  db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(isAdmin ? 1 : 0, id)
+  const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users WHERE id = ?').get(id)
+  return res.json(user)
+})
+
+export default router

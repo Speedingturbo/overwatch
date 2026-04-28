@@ -18,7 +18,7 @@ const activeTab = ref('progress')
 // 「安全风险隐患」子菜单是否展开
 const riskMenuExpanded = ref(false)
 // 「安全风险隐患」下的四个子标签页标识
-const riskSubTabs = ['risk', 'hazard', 'preshift', 'quality']
+const riskSubTabs = ['risk', 'riskHandle', 'hazard', 'preshift', 'inspection', 'quality']
 
 // 切换「安全风险隐患」子菜单的展开/折叠状态
 function toggleRiskMenu() {
@@ -29,9 +29,11 @@ function toggleRiskMenu() {
 function selectRiskSub(tab) {
   activeTab.value = tab
   if (tab === 'risk') backToRiskList()
+  if (tab === 'riskHandle') backToRiskHandleList()
   if (tab === 'quality') backToQualityList()
   if (tab === 'hazard') backToHazardList()
   if (tab === 'preshift') backToPreshiftList()
+  if (tab === 'inspection') backToInspectionList()
 }
 
 // --- 项目概况模块 ---
@@ -76,12 +78,15 @@ async function removeOverview(index) {
   if (supervisorActiveProject.value === item.name) supervisorActiveProject.value = null
   riskList.value = riskList.value.filter(r => r.project !== item.name)
   if (riskActiveProject.value === item.name) riskActiveProject.value = null
+  if (riskHandleActiveProject.value === item.name) riskHandleActiveProject.value = null
   qualityList.value = qualityList.value.filter(q => q.project !== item.name)
   if (qualityActiveProject.value === item.name) qualityActiveProject.value = null
   hazardList.value = hazardList.value.filter(h => h.project !== item.name)
   if (hazardActiveProject.value === item.name) hazardActiveProject.value = null
   preshiftList.value = preshiftList.value.filter(p => p.project !== item.name)
   if (preshiftActiveProject.value === item.name) preshiftActiveProject.value = null
+  inspectionList.value = inspectionList.value.filter(i => i.project !== item.name)
+  if (inspectionActiveProject.value === item.name) inspectionActiveProject.value = null
   fileList.value = fileList.value.filter(f => f.project !== item.name)
   if (fileActiveProject.value === item.name) fileActiveProject.value = null
 }
@@ -128,12 +133,15 @@ async function saveEditOverview() {
     if (supervisorActiveProject.value === oldName) supervisorActiveProject.value = name
     riskList.value.forEach(r => { if (r.project === oldName) r.project = name })
     if (riskActiveProject.value === oldName) riskActiveProject.value = name
+    if (riskHandleActiveProject.value === oldName) riskHandleActiveProject.value = name
     qualityList.value.forEach(q => { if (q.project === oldName) q.project = name })
     if (qualityActiveProject.value === oldName) qualityActiveProject.value = name
     hazardList.value.forEach(h => { if (h.project === oldName) h.project = name })
     if (hazardActiveProject.value === oldName) hazardActiveProject.value = name
     preshiftList.value.forEach(p => { if (p.project === oldName) p.project = name })
     if (preshiftActiveProject.value === oldName) preshiftActiveProject.value = name
+    inspectionList.value.forEach(i => { if (i.project === oldName) i.project = name })
+    if (inspectionActiveProject.value === oldName) inspectionActiveProject.value = name
     fileList.value.forEach(f => { if (f.project === oldName) f.project = name })
     if (fileActiveProject.value === oldName) fileActiveProject.value = name
   }
@@ -456,6 +464,7 @@ const riskDiscoverPlace = ref('')   // 发现地点
 const riskPhoto = ref('')           // 隐患照片（Base64）
 const riskList = ref([])            // 所有风险隐患数据列表
 const riskActiveProject = ref(null) // 当前选中查看的项目名
+const riskHandleActiveProject = ref(null) // 隐患处理当前选中项目名
 const riskModalVisible = ref(false) // 添加弹窗是否可见
 const riskFilterLevel = ref('')     // 风险等级筛选条件
 const previewPhoto = ref('')        // 照片预览弹层图片地址
@@ -499,6 +508,47 @@ function backToRiskList() {
   riskFilterLevel.value = ''
   riskModalVisible.value = false
   nextTick(() => updateRiskBarChart())
+}
+
+const riskHandleForProject = computed(() => {
+  if (!riskHandleActiveProject.value) return []
+  return riskList.value.filter(r => r.project === riskHandleActiveProject.value)
+})
+
+const processedRiskCountByProject = computed(() => {
+  const map = {}
+  riskList.value.forEach(r => {
+    if (r.project && r.processed) map[r.project] = (map[r.project] || 0) + 1
+  })
+  return map
+})
+
+function enterRiskHandleProject(projectName) {
+  riskHandleActiveProject.value = projectName
+}
+
+function backToRiskHandleList() {
+  riskHandleActiveProject.value = null
+}
+
+async function toggleRiskProcessed(filteredIndex, processed) {
+  const item = riskHandleForProject.value[filteredIndex]
+  const updated = await api.put('/api/risks/' + item.id + '/process', { processed })
+  const realIndex = riskList.value.findIndex(r => r.id === item.id)
+  if (realIndex !== -1) riskList.value[realIndex] = updated
+}
+
+async function advanceWorkflow(filteredIndex, step) {
+  const item = riskHandleForProject.value[filteredIndex]
+  const userRole = currentUser.value?.role || ''
+  const updated = await api.put('/api/risks/' + item.id + '/workflow', { step, userRole })
+  if (updated.error) return
+  const realIndex = riskList.value.findIndex(r => r.id === item.id)
+  if (realIndex !== -1) riskList.value[realIndex] = updated
+}
+
+function getRiskProcessStatusLabel(item) {
+  return item.processed ? '已处理' : '未处理'
 }
 
 // --- 风险统计柱状图 ---
@@ -937,6 +987,117 @@ async function saveEditHazard() {
   editHazardModalVisible.value = false
 }
 
+// --- 设备巡检模块 ---
+const inspectionList = ref([])
+const inspectionActiveProject = ref(null)
+const inspectionModalVisible = ref(false)
+const inspectionDeviceName = ref('')
+const inspectionCheckContent = ref('')
+const inspectionFoundRisk = ref('')
+const inspectionWarrantyStatus = ref('')
+const inspectionEditIndex = ref(-1)
+const editInspectionModalVisible = ref(false)
+
+async function loadInspections() {
+  inspectionList.value = await api.get('/api/device-inspections')
+}
+
+const inspectionForProject = computed(() => {
+  if (!inspectionActiveProject.value) return []
+  return inspectionList.value.filter(item => item.project === inspectionActiveProject.value)
+})
+
+const inspectionCountByProject = computed(() => {
+  const map = {}
+  inspectionList.value.forEach(item => {
+    if (item.project) map[item.project] = (map[item.project] || 0) + 1
+  })
+  return map
+})
+
+function enterInspectionProject(projectName) {
+  inspectionActiveProject.value = projectName
+}
+
+function backToInspectionList() {
+  inspectionActiveProject.value = null
+  inspectionModalVisible.value = false
+  editInspectionModalVisible.value = false
+}
+
+function resetInspectionForm() {
+  inspectionDeviceName.value = ''
+  inspectionCheckContent.value = ''
+  inspectionFoundRisk.value = ''
+  inspectionWarrantyStatus.value = ''
+}
+
+function openInspectionModal() {
+  inspectionEditIndex.value = -1
+  resetInspectionForm()
+  inspectionModalVisible.value = true
+}
+
+function closeInspectionModal() {
+  inspectionModalVisible.value = false
+}
+
+async function addInspection() {
+  const deviceName = inspectionDeviceName.value.trim()
+  if (!deviceName) return
+
+  const item = await api.post('/api/device-inspections', {
+    project: inspectionActiveProject.value,
+    deviceName,
+    checkContent: inspectionCheckContent.value.trim(),
+    foundRisk: inspectionFoundRisk.value.trim(),
+    warrantyStatus: inspectionWarrantyStatus.value.trim()
+  })
+
+  inspectionList.value.unshift(item)
+  inspectionModalVisible.value = false
+}
+
+function openEditInspection(filteredIndex) {
+  const item = inspectionForProject.value[filteredIndex]
+  inspectionEditIndex.value = inspectionList.value.indexOf(item)
+  inspectionDeviceName.value = item.deviceName || ''
+  inspectionCheckContent.value = item.checkContent || ''
+  inspectionFoundRisk.value = item.foundRisk || ''
+  inspectionWarrantyStatus.value = item.warrantyStatus || ''
+  editInspectionModalVisible.value = true
+}
+
+function closeEditInspection() {
+  editInspectionModalVisible.value = false
+}
+
+async function saveEditInspection() {
+  const idx = inspectionEditIndex.value
+  if (idx < 0) return
+
+  const deviceName = inspectionDeviceName.value.trim()
+  if (!deviceName) return
+
+  const item = inspectionList.value[idx]
+  const updated = await api.put('/api/device-inspections/' + item.id, {
+    deviceName,
+    checkContent: inspectionCheckContent.value.trim(),
+    foundRisk: inspectionFoundRisk.value.trim(),
+    warrantyStatus: inspectionWarrantyStatus.value.trim()
+  })
+
+  inspectionList.value[idx] = updated
+  editInspectionModalVisible.value = false
+}
+
+async function removeInspection(filteredIndex) {
+  const item = inspectionForProject.value[filteredIndex]
+  await api.del('/api/device-inspections/' + item.id)
+  const realIndex = inspectionList.value.findIndex(i => i.id === item.id)
+  if (realIndex !== -1) inspectionList.value.splice(realIndex, 1)
+}
+
 // --- 班前教育（站例会）模块 ---
 // 添加表单绑定的输入字段
 const preshiftList = ref([])                  // 所有站例会记录数据列表
@@ -1291,6 +1452,144 @@ watch(activeTab, (tab) => {
   }
 })
 
+// --- 账号管理模块 ---
+const accountList = ref([])
+const editAccountVisible = ref(false)
+const editAccountId = ref(null)
+const editAccountUsername = ref('')
+const editAccountPassword = ref('')
+const editAccountRole = ref('')
+const editAccountError = ref('')
+const createAccountVisible = ref(false)
+const createAccountUsername = ref('')
+const createAccountRealName = ref('')
+const createAccountPhone = ref('')
+const createAccountRole = ref('')
+const createAccountIsAdmin = ref(false)
+const createAccountError = ref('')
+const currentUser = ref(JSON.parse(localStorage.getItem('overwatch-auth-user') || 'null'))
+const isCurrentUserAdmin = computed(() => Boolean(currentUser.value?.isAdmin))
+
+async function loadAccounts() {
+  try {
+    const list = await api.get('/api/auth/users')
+    accountList.value = list
+    // 同步当前用户的管理员状态（数据库可能已更新）
+    if (currentUser.value) {
+      const me = list.find(a => a.id === currentUser.value.id)
+      if (me) {
+        currentUser.value = { ...currentUser.value, isAdmin: Boolean(me.is_admin), role: me.role || '' }
+        localStorage.setItem('overwatch-auth-user', JSON.stringify(currentUser.value))
+      }
+    }
+  } catch {
+    accountList.value = []
+  }
+}
+
+function openEditAccount(account) {
+  editAccountId.value = account.id
+  editAccountUsername.value = account.username
+  editAccountPassword.value = ''
+  editAccountRole.value = account.role || ''
+  editAccountError.value = ''
+  editAccountVisible.value = true
+}
+
+function closeEditAccount() {
+  editAccountVisible.value = false
+}
+
+function openCreateAccount() {
+  createAccountUsername.value = ''
+  createAccountRealName.value = ''
+  createAccountPhone.value = ''
+  createAccountRole.value = ''
+  createAccountIsAdmin.value = false
+  createAccountError.value = ''
+  createAccountVisible.value = true
+}
+
+function closeCreateAccount() {
+  createAccountVisible.value = false
+}
+
+async function saveCreateAccount() {
+  createAccountError.value = ''
+  const username = createAccountUsername.value.trim()
+  const realName = createAccountRealName.value.trim()
+  const phone = createAccountPhone.value.trim()
+  if (!username || !realName || !phone) {
+    createAccountError.value = '账号名、姓名和联系方式为必填项'
+    return
+  }
+  try {
+    const result = await fetch('/api/auth/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-id': String(currentUser.value?.id) },
+      body: JSON.stringify({ username, realName, phone, role: createAccountRole.value.trim(), isAdmin: createAccountIsAdmin.value })
+    }).then(r => r.json())
+    if (result.error) {
+      createAccountError.value = result.error
+      return
+    }
+    accountList.value.push(result)
+    createAccountVisible.value = false
+  } catch {
+    createAccountError.value = '创建失败，请稍后重试'
+  }
+}
+
+async function saveEditAccount() {
+  editAccountError.value = ''
+  const username = editAccountUsername.value.trim()
+  const password = editAccountPassword.value
+  if (!username) {
+    editAccountError.value = '账号名不能为空'
+    return
+  }
+  try {
+    const updated = await api.put('/api/auth/users/' + editAccountId.value, { username, password: password || undefined, role: editAccountRole.value.trim() })
+    if (updated.error) {
+      editAccountError.value = updated.error
+      return
+    }
+    const idx = accountList.value.findIndex(a => a.id === editAccountId.value)
+    if (idx !== -1) accountList.value[idx] = updated
+    editAccountVisible.value = false
+  } catch {
+    editAccountError.value = '保存失败，请稍后重试'
+  }
+}
+
+async function deleteAccount(accountId) {
+  try {
+    await fetch('/api/auth/users/' + accountId, {
+      method: 'DELETE',
+      headers: { 'x-admin-id': String(currentUser.value?.id) }
+    })
+    accountList.value = accountList.value.filter(a => a.id !== accountId)
+  } catch {
+    // ignore
+  }
+}
+
+async function toggleAdminRole(account) {
+  try {
+    const updated = await fetch('/api/auth/users/' + account.id + '/role', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-id': String(currentUser.value?.id) },
+      body: JSON.stringify({ isAdmin: !account.is_admin })
+    }).then(r => r.json())
+    if (!updated.error) {
+      const idx = accountList.value.findIndex(a => a.id === account.id)
+      if (idx !== -1) accountList.value[idx] = updated
+    }
+  } catch {
+    // ignore
+  }
+}
+
 onMounted(async () => {
   await Promise.all([
     loadOverview(),
@@ -1301,7 +1600,9 @@ onMounted(async () => {
     loadQuality(),
     loadHazards(),
     loadPreshift(),
-    loadFiles()
+    loadInspections(),
+    loadFiles(),
+    loadAccounts()
   ])
   nextTick(() => updateChart())
   window.addEventListener('resize', handleResize)
@@ -1356,6 +1657,10 @@ onBeforeUnmount(() => {
               @click="selectRiskSub('risk')"
             >项目风险统计</li>
             <li
+              :class="['sidebar-sub-item', { active: activeTab === 'riskHandle' }]"
+              @click="selectRiskSub('riskHandle')"
+            >隐患处理</li>
+            <li
               :class="['sidebar-sub-item', { active: activeTab === 'hazard' }]"
               @click="selectRiskSub('hazard')"
             >危险源辨识清单</li>
@@ -1363,6 +1668,10 @@ onBeforeUnmount(() => {
               :class="['sidebar-sub-item', { active: activeTab === 'preshift' }]"
               @click="selectRiskSub('preshift')"
             >班前教育</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'inspection' }]"
+              @click="selectRiskSub('inspection')"
+            >设备巡检</li>
             <li
               :class="['sidebar-sub-item', { active: activeTab === 'quality' }]"
               @click="selectRiskSub('quality')"
@@ -1373,18 +1682,24 @@ onBeforeUnmount(() => {
           :class="['sidebar-item', { active: activeTab === 'files' }]"
           @click="activeTab = 'files'; backToFileList()"
         >项目文件</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'accounts' }]"
+          @click="activeTab = 'accounts'"
+        >账号管理</li>
       </ul>
     </aside>
 
     <div class="data-manage">
       <h2 class="page-title">
-        {{ { overview: '项目概况', progress: '项目进度', staff: '人员信息', supervisor: '监理人员信息', risk: '项目风险统计', hazard: '危险源辨识清单', preshift: '班前教育', quality: '质量管理', files: '项目文件' }[activeTab] }}
+        {{ { overview: '项目概况', progress: '项目进度', staff: '人员信息', supervisor: '监理人员信息', risk: '项目风险统计', riskHandle: '隐患处理', hazard: '危险源辨识清单', preshift: '班前教育', inspection: '设备巡检', quality: '质量管理', files: '项目文件', accounts: '账号管理' }[activeTab] }}
         <span v-if="activeTab === 'staff' && staffActiveProject" class="page-title-sub"> — {{ staffActiveProject }}</span>
         <span v-if="activeTab === 'supervisor' && supervisorActiveProject" class="page-title-sub"> — {{ supervisorActiveProject }}</span>
         <span v-if="activeTab === 'risk' && riskActiveProject" class="page-title-sub"> — {{ riskActiveProject }}</span>
+        <span v-if="activeTab === 'riskHandle' && riskHandleActiveProject" class="page-title-sub"> — {{ riskHandleActiveProject }}</span>
         <span v-if="activeTab === 'quality' && qualityActiveProject" class="page-title-sub"> — {{ qualityActiveProject }}</span>
         <span v-if="activeTab === 'hazard' && hazardActiveProject" class="page-title-sub"> — {{ hazardActiveProject }}</span>
         <span v-if="activeTab === 'preshift' && preshiftActiveProject" class="page-title-sub"> — {{ preshiftActiveProject }}</span>
+        <span v-if="activeTab === 'inspection' && inspectionActiveProject" class="page-title-sub"> — {{ inspectionActiveProject }}</span>
         <span v-if="activeTab === 'files' && fileActiveProject" class="page-title-sub"> — {{ fileActiveProject }}</span>
       </h2>
 
@@ -1889,6 +2204,114 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-show="activeTab === 'riskHandle'">
+        <div v-if="!riskHandleActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>风险总数</th>
+                  <th>已处理</th>
+                  <th>未处理</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterRiskHandleProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
+                  <td>{{ processedRiskCountByProject[ov.name] || 0 }} 条</td>
+                  <td>{{ (riskCountByProject[ov.name] || 0) - (processedRiskCountByProject[ov.name] || 0) }} 条</td>
+                  <td><button class="view-btn" @click="enterRiskHandleProject(ov.name)">进入处理</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <div v-else>
+          <button class="back-btn" @click="backToRiskHandleList">← 返回项目列表</button>
+
+          <div class="table-wrapper" v-show="riskHandleForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>风险隐患描述</th>
+                  <th>发现时间</th>
+                  <th>发现地点</th>
+                  <th>风险等级</th>
+                  <th>整改措施</th>
+                  <th>处理状态</th>
+                  <th>流程进度</th>
+                  <th>流程操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in riskHandleForProject" :key="item.id">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.desc }}</td>
+                  <td>{{ item.discoverTime || item.date || '—' }}</td>
+                  <td>{{ item.discoverPlace || '—' }}</td>
+                  <td>
+                    <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>{{ item.measure || '—' }}</td>
+                  <td>
+                    <span :class="['process-tag', item.processed ? 'process-done' : 'process-pending']">{{ getRiskProcessStatusLabel(item) }}</span>
+                  </td>
+                  <td>
+                    <div class="workflow-steps">
+                      <span :class="['wf-step', item.workflowStep >= 1 ? 'wf-done' : 'wf-pending']">①发起</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 2 ? 'wf-done' : 'wf-pending']">②确认</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 3 ? 'wf-done' : 'wf-pending']">③复核</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 4 ? 'wf-done' : 'wf-pending']">④终确</span>
+                    </div>
+                  </td>
+                  <td>
+                    <!-- Step 1: 监理工程师 发起处理 -->
+                    <button
+                      v-if="currentUser?.role === '监理工程师' && item.workflowStep === 0"
+                      class="wf-btn wf-btn-start"
+                      @click="advanceWorkflow(idx, 1)"
+                    >发起处理</button>
+                    <!-- Step 2: 施工班组长 确认处理 -->
+                    <button
+                      v-else-if="currentUser?.role === '施工班组长' && item.workflowStep === 1"
+                      class="wf-btn wf-btn-confirm"
+                      @click="advanceWorkflow(idx, 2)"
+                    >确认处理</button>
+                    <!-- Step 3: 项目经理 复核处理 -->
+                    <button
+                      v-else-if="currentUser?.role === '项目经理' && item.workflowStep === 2"
+                      class="wf-btn wf-btn-review"
+                      @click="advanceWorkflow(idx, 3)"
+                    >复核处理</button>
+                    <!-- Step 4: 监理工程师 最终确认 -->
+                    <button
+                      v-else-if="currentUser?.role === '监理工程师' && item.workflowStep === 3"
+                      class="wf-btn wf-btn-final"
+                      @click="advanceWorkflow(idx, 4)"
+                    >最终确认</button>
+                    <span v-else-if="item.workflowStep === 4" class="wf-complete">流程已完成</span>
+                    <span v-else class="wf-waiting">等待上一步完成</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!riskHandleForProject.length" class="empty-tip">该项目暂无风险隐患记录</div>
+        </div>
+      </div>
+
       <!-- 危险源辨识清单模块 -->
       <div v-show="activeTab === 'hazard'">
         <!-- 一级：项目列表视图 -->
@@ -2178,6 +2601,126 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-show="activeTab === 'inspection'">
+        <div v-if="!inspectionActiveProject">
+          <div v-if="overviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>巡检记录数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterInspectionProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ inspectionCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterInspectionProject(ov.name)">设备巡检</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <div v-else>
+          <button class="back-btn" @click="backToInspectionList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openInspectionModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="inspectionForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>设备名</th>
+                  <th>日常检查内容</th>
+                  <th>已发现风险</th>
+                  <th>保修情况</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in inspectionForProject" :key="item.id">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.deviceName }}</td>
+                  <td>{{ item.checkContent || '—' }}</td>
+                  <td>{{ item.foundRisk || '—' }}</td>
+                  <td>{{ item.warrantyStatus || '—' }}</td>
+                  <td>
+                    <button class="edit-btn" @click="openEditInspection(idx)">编辑</button>
+                    <button class="del-btn" @click="removeInspection(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!inspectionForProject.length" class="empty-tip">该项目暂无设备巡检记录</div>
+
+          <div v-if="inspectionModalVisible" class="modal-overlay" @click.self="closeInspectionModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加设备巡检记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>设备名</label>
+                  <input v-model="inspectionDeviceName" placeholder="请输入设备名" />
+                </div>
+                <div class="modal-field">
+                  <label>日常检查内容</label>
+                  <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>已发现风险</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>保修情况</label>
+                  <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeInspectionModal">取消</button>
+                <button class="add-btn" @click="addInspection">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="editInspectionModalVisible" class="modal-overlay" @click.self="closeEditInspection">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑设备巡检记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>设备名</label>
+                  <input v-model="inspectionDeviceName" placeholder="请输入设备名" />
+                </div>
+                <div class="modal-field">
+                  <label>日常检查内容</label>
+                  <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>已发现风险</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>保修情况</label>
+                  <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditInspection">取消</button>
+                <button class="add-btn" @click="saveEditInspection">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-show="activeTab === 'quality'">
         <!-- 一级：项目列表 -->
         <div v-if="!qualityActiveProject">
@@ -2459,6 +3002,115 @@ onBeforeUnmount(() => {
                 <button class="modal-cancel-btn" @click="closeFileUploadModal">取消</button>
                 <button class="add-btn" :disabled="fileUploading" @click="uploadFile">{{ fileUploading ? '上传中...' : '确认上传' }}</button>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 账号管理 -->
+      <div v-show="activeTab === 'accounts'">
+        <div class="input-section" v-if="isCurrentUserAdmin">
+          <button class="add-btn" @click="openCreateAccount">添加账户</button>
+        </div>
+        <div class="table-wrapper" v-show="accountList.length">
+          <table>
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>账号名</th>
+                <th>姓名</th>
+                <th>手机号</th>
+                <th>注册时间</th>
+                <th>角色</th>
+                <th>权限</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(account, idx) in accountList" :key="account.id">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ account.username }}</td>
+                <td>{{ account.real_name }}</td>
+                <td>{{ account.phone }}</td>
+                <td>{{ account.created_at }}</td>
+                <td>{{ account.role || '—' }}</td>
+                <td>
+                  <span :class="account.is_admin ? 'role-tag role-admin' : 'role-tag role-normal'">
+                    {{ account.is_admin ? '管理员' : '普通用户' }}
+                  </span>
+                </td>
+                <td>
+                  <button class="edit-btn" @click="openEditAccount(account)">编辑</button>
+                  <button v-if="isCurrentUserAdmin" class="role-btn" @click="toggleAdminRole(account)">
+                    {{ account.is_admin ? '撤销管理员' : '设为管理员' }}
+                  </button>
+                  <button v-if="isCurrentUserAdmin && account.id !== currentUser.id" class="del-btn" @click="deleteAccount(account.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-show="!accountList.length" class="empty-tip">暂无注册账号</div>
+
+        <!-- 编辑账号弹窗 -->
+        <div v-if="editAccountVisible" class="modal-overlay" @click.self="closeEditAccount">
+          <div class="modal-content">
+            <h3 class="modal-title">编辑账号</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>账号名</label>
+                <input v-model="editAccountUsername" placeholder="请输入账号名" />
+              </div>
+              <div class="modal-field">
+                <label>新密码（不填则不修改）</label>
+                <input v-model="editAccountPassword" type="password" placeholder="至少6位" />
+              </div>
+              <div class="modal-field">
+                <label>角色</label>
+                <input v-model="editAccountRole" placeholder="请输入角色（如：监理工程师）" />
+              </div>
+              <div v-if="editAccountError" class="modal-error">{{ editAccountError }}</div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeEditAccount">取消</button>
+              <button class="add-btn" @click="saveEditAccount">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加账户弹窗 -->
+        <div v-if="createAccountVisible" class="modal-overlay" @click.self="closeCreateAccount">
+          <div class="modal-content">
+            <h3 class="modal-title">添加账户</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>账号名</label>
+                <input v-model="createAccountUsername" placeholder="请输入账号名" />
+              </div>
+              <div class="modal-field">
+                <label>姓名</label>
+                <input v-model="createAccountRealName" placeholder="请输入姓名" />
+              </div>
+              <div class="modal-field">
+                <label>联系方式（手机号）</label>
+                <input v-model="createAccountPhone" placeholder="请输入11位手机号" />
+              </div>
+              <div class="modal-field">
+                <label>角色</label>
+                <input v-model="createAccountRole" placeholder="请输入角色（如：监理工程师）" />
+              </div>
+              <div class="modal-field">
+                <label style="display:flex;align-items:center;gap:8px;">
+                  <input type="checkbox" v-model="createAccountIsAdmin" style="width:auto;" />
+                  设为管理员
+                </label>
+              </div>
+              <div class="modal-tip">初始密码为手机号后6位</div>
+              <div v-if="createAccountError" class="modal-error">{{ createAccountError }}</div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeCreateAccount">取消</button>
+              <button class="add-btn" @click="saveCreateAccount">确认添加</button>
             </div>
           </div>
         </div>
@@ -2984,5 +3636,132 @@ tbody tr:nth-child(even) {
   font-weight: 600;
   color: #fff;
   background-color: #27ae60;
+}
+
+.modal-error {
+  color: #e53e3e;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.modal-tip {
+  color: #888;
+  font-size: 12px;
+}
+
+.role-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.role-admin {
+  background-color: #8e44ad;
+}
+
+.role-normal {
+  background-color: #7f8c8d;
+}
+
+.role-btn {
+  padding: 4px 12px;
+  background-color: #8e44ad;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 6px;
+}
+
+.role-btn:hover {
+  background-color: #6c3483;
+}
+
+.workflow-steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.wf-step {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wf-done {
+  background-color: #27ae60;
+  color: #fff;
+}
+
+.wf-pending {
+  background-color: #ccc;
+  color: #666;
+}
+
+.wf-arrow {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.wf-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.wf-btn-start {
+  background-color: #3398db;
+}
+
+.wf-btn-start:hover {
+  background-color: #1e6fa8;
+}
+
+.wf-btn-confirm {
+  background-color: #27ae60;
+}
+
+.wf-btn-confirm:hover {
+  background-color: #1e8449;
+}
+
+.wf-btn-review {
+  background-color: #f39c12;
+}
+
+.wf-btn-review:hover {
+  background-color: #d68910;
+}
+
+.wf-btn-final {
+  background-color: #8e44ad;
+}
+
+.wf-btn-final:hover {
+  background-color: #6c3483;
+}
+
+.wf-complete {
+  color: #27ae60;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wf-waiting {
+  color: #aaa;
+  font-size: 12px;
 }
 </style>

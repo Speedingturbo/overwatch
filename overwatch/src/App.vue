@@ -1,16 +1,35 @@
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getStoredAuthUser, logoutUser } from './utils/auth'
 
+const route = useRoute()
 const router = useRouter()
+
+const showNavbar = computed(() => !route.meta.hideNavbar)
+const currentUser = ref(getStoredAuthUser())
+
+watch(
+  () => route.fullPath,
+  () => {
+    currentUser.value = getStoredAuthUser()
+  },
+  { immediate: true },
+)
 
 function openBlankPage() {
   const { href } = router.resolve('/blank')
   window.open(href, '_blank')
 }
+
+function handleLogout() {
+  logoutUser()
+  router.push('/login')
+}
 </script>
 
 <template>
-  <nav class="navbar">
+  <nav v-if="showNavbar" class="navbar">
     <div class="navbar-left">
       <button class="navbar-btn" @click="router.push('/')">项目概况</button>
       <button class="navbar-btn" @click="router.push('/hse')">HSE管理</button>
@@ -19,6 +38,10 @@ function openBlankPage() {
     <div class="navbar-right">
       <button class="navbar-btn" @click="router.push('/text')">文本分析</button>
       <button class="navbar-btn" @click="openBlankPage">系统设置</button>
+    </div>
+    <div class="navbar-actions">
+      <span v-if="currentUser" class="navbar-user">{{ currentUser.realName || currentUser.username }}</span>
+      <button class="navbar-btn" @click="handleLogout">退出登录</button>
     </div>
   </nav>
 
@@ -67,6 +90,14 @@ function openBlankPage() {
   margin-right: 25%;
 }
 
+.navbar-actions {
+  position: absolute;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .navbar-btn {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -81,5 +112,12 @@ function openBlankPage() {
 .navbar-btn:hover {
   background-color: rgba(255, 255, 255, 0.15);
   border-color: #fff;
+}
+
+.navbar-user {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
 }
 </style>
