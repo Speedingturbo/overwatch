@@ -1,0 +1,14 @@
+﻿<script setup>
+</script>
+
+<template>
+  <div class="hse-page"></div>
+</template>
+
+<style scoped>
+.hse-page {
+  min-height: 100vh;
+  padding-top: 56px;
+  box-sizing: border-box;
+}
+</style>

@@ -1,0 +1,854 @@
+﻿<script setup>
+import { onMounted, ref, computed } from 'vue'
+import chinaMapSvg from '../assets/china_map.svg?raw'
+
+const overviewList = ref([])
+
+async function loadOverview() {
+  try {
+    const res = await fetch('/api/overview')
+    overviewList.value = await res.json()
+  } catch {
+    overviewList.value = []
+  }
+}
+
+const projects = ref([])
+
+async function loadProjects() {
+  try {
+    const res = await fetch('/api/projects')
+    projects.value = await res.json()
+  } catch {
+    projects.value = []
+  }
+}
+
+const riskList = ref([])
+
+async function loadRisks() {
+  try {
+    const res = await fetch('/api/risks')
+    riskList.value = await res.json()
+  } catch {
+    riskList.value = []
+  }
+}
+
+const projectRiskSummary = computed(() => {
+  return projects.value.map(p => {
+    const risks = riskList.value.filter(
+      r => typeof r.project === 'string' && r.project.trim() === p.name
+    )
+    const count = risks.length
+    const doneCount = risks.filter(r => r.processed || r.workflowStep === 4).length
+    let status = 'none'
+    if (count > 0) {
+      if (doneCount === count) status = 'all-done'
+      else if (doneCount > 0) status = 'partial'
+      else status = 'none-done'
+    }
+    return { name: p.name, count, status }
+  })
+})
+
+const totalRiskCount = computed(() => riskList.value.length)
+
+const selectedRiskProject = ref(null)
+
+const projectRisks = computed(() => {
+  if (!selectedRiskProject.value) return []
+  return riskList.value.filter(
+    r => typeof r.project === 'string' && r.project.trim() === selectedRiskProject.value
+  )
+})
+
+const RISK_LEVEL_COLOR = { '低': '#34d399', '中': '#f59e0b', '高': '#f97316', '重大': '#ef4444' }
+const WF_LABELS = ['待发起', '①发起', '②确认', '③复核', '④完成']
+
+const WORKFLOW_STEPS = [
+  { step: 0, label: '待发起', color: '#94a3b8' },
+  { step: 1, label: '①发起', color: '#60a5fa' },
+  { step: 2, label: '②确认', color: '#f59e0b' },
+  { step: 3, label: '③复核', color: '#a78bfa' },
+  { step: 4, label: '④完成', color: '#34d399' },
+]
+
+const projectWorkflowSummary = computed(() => {
+  return projects.value.map(p => {
+    const risks = riskList.value.filter(r =>
+      typeof r.project === 'string' && r.project.trim() === p.name
+    )
+    const stepCounts = [0, 0, 0, 0, 0]
+    risks.forEach(r => {
+      const s = typeof r.workflowStep === 'number' ? r.workflowStep : 0
+      if (s >= 0 && s <= 4) stepCounts[s]++
+    })
+    const total = risks.length
+    const done = stepCounts[4]
+    const rate = total > 0 ? Math.round((done / total) * 100) : 0
+    return { name: p.name, stepCounts, total, done, rate }
+  })
+})
+
+const overallCompletionRate = computed(() => {
+  const total = riskList.value.length
+  if (total === 0) return 0
+  const done = riskList.value.filter(r => r.workflowStep === 4).length
+  return Math.round((done / total) * 100)
+})
+
+const workflowStepTotals = computed(() => {
+  const counts = [0, 0, 0, 0, 0]
+  riskList.value.forEach(r => {
+    const s = typeof r.workflowStep === 'number' ? r.workflowStep : 0
+    if (s >= 0 && s <= 4) counts[s]++
+  })
+  return WORKFLOW_STEPS.map((ws, i) => ({ ...ws, count: counts[i] }))
+})
+
+const selectedProvinceId = ref(null)
+const selectedProvinceName = ref('')
+
+const provinceIdToName = {}
+const provinceNameToPath = {}
+
+const PROJECT_DOTS_GROUP_ID = 'project-dots-group'
+
+function renderProjectDots() {
+  const container = document.querySelector('.china-map')
+  if (!container) return
+  const svg = container.querySelector('svg')
+  if (!svg) return
+
+  const oldGroup = svg.getElementById(PROJECT_DOTS_GROUP_ID)
+  if (oldGroup) oldGroup.remove()
+
+  if (!overviewList.value.length) return
+
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  group.setAttribute('id', PROJECT_DOTS_GROUP_ID)
+  group.setAttribute('pointer-events', 'none')
+
+  const provinceCount = {}
+  overviewList.value.forEach(item => {
+    const loc = item.location.trim()
+    for (const [name] of Object.entries(provinceNameToPath)) {
+      if (loc.includes(name) || name.includes(loc)) {
+        provinceCount[name] = (provinceCount[name] || 0) + 1
+        break
+      }
+    }
+  })
+
+  for (const [name, count] of Object.entries(provinceCount)) {
+    const pathEl = provinceNameToPath[name]
+    if (!pathEl) continue
+    const bbox = pathEl.getBBox()
+    const cx = bbox.x + bbox.width / 2
+    const cy = bbox.y + bbox.height / 2
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    circle.setAttribute('cx', cx)
+    circle.setAttribute('cy', cy)
+    circle.setAttribute('r', '8')
+    circle.setAttribute('fill', '#ef4444')
+    circle.setAttribute('stroke', '#fff')
+    circle.setAttribute('stroke-width', '2')
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    text.setAttribute('x', cx)
+    text.setAttribute('y', cy)
+    text.setAttribute('text-anchor', 'middle')
+    text.setAttribute('dominant-baseline', 'central')
+    text.setAttribute('font-size', '10')
+    text.setAttribute('fill', '#fff')
+    text.setAttribute('font-weight', 'bold')
+    text.textContent = String(count)
+
+    group.appendChild(circle)
+    group.appendChild(text)
+  }
+
+  svg.appendChild(group)
+}
+
+onMounted(async () => {
+  await Promise.all([loadOverview(), loadProjects(), loadRisks()])
+
+  const container = document.querySelector('.china-map')
+  if (!container) return
+  const svg = container.querySelector('svg')
+  if (!svg) return
+
+  svg.querySelectorAll('.land').forEach((/** @type {SVGGraphicsElement} */ path) => {
+    const id = path.getAttribute('id')
+    const name = path.getAttribute('title')
+    if (id && name) {
+      provinceIdToName[id] = name
+      provinceNameToPath[name] = path
+    }
+  })
+
+  renderProjectDots()
+
+  const SELECTED_CLASS = 'land-selected'
+  const LABEL_ID = 'province-label-text'
+
+  svg.querySelectorAll('.land').forEach((/** @type {SVGGraphicsElement} */ path) => {
+    path.addEventListener('click', function () {
+      const id = path.getAttribute('id')
+      if (!id) return
+
+      if (selectedProvinceId.value === id) {
+        path.classList.remove(SELECTED_CLASS)
+        selectedProvinceId.value = null
+        selectedProvinceName.value = ''
+        const oldLabel = svg.getElementById(LABEL_ID)
+        if (oldLabel) oldLabel.remove()
+        return
+      }
+
+      if (selectedProvinceId.value) {
+        const prev = svg.getElementById(selectedProvinceId.value)
+        if (prev) prev.classList.remove(SELECTED_CLASS)
+      }
+      const oldLabel = svg.getElementById(LABEL_ID)
+      if (oldLabel) oldLabel.remove()
+
+      path.classList.add(SELECTED_CLASS)
+      selectedProvinceId.value = id
+      selectedProvinceName.value = provinceIdToName[id] || ''
+
+      const bbox = path.getBBox()
+      const cx = bbox.x + bbox.width / 2
+      const cy = bbox.y + 20
+
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+      group.setAttribute('id', LABEL_ID)
+      group.setAttribute('pointer-events', 'none')
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+      text.setAttribute('x', cx)
+      text.setAttribute('y', cy)
+      text.setAttribute('text-anchor', 'middle')
+      text.setAttribute('dominant-baseline', 'auto')
+      text.setAttribute('font-size', '18')
+      text.setAttribute('fill', '#fff')
+      text.textContent = selectedProvinceName.value
+
+      svg.appendChild(text)
+      const textBBox = text.getBBox()
+      text.remove()
+
+      const padX = 8
+      const padY = 4
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('x', textBBox.x - padX)
+      rect.setAttribute('y', textBBox.y - padY)
+      rect.setAttribute('width', textBBox.width + padX * 2)
+      rect.setAttribute('height', textBBox.height + padY * 2)
+      rect.setAttribute('rx', '4')
+      rect.setAttribute('ry', '4')
+      rect.setAttribute('fill', 'rgba(0, 0, 0, 0.65)')
+
+      group.appendChild(rect)
+      group.appendChild(text)
+      svg.appendChild(group)
+    })
+  })
+})
+</script>
+
+<template>
+  <div class="side-boxes left-boxes">
+    <div class="side-box risk-panel-box">
+      <template v-if="!selectedRiskProject">
+        <div class="risk-panel-header">
+          <span>项目风险总览</span>
+          <span class="risk-panel-sub">共 {{ totalRiskCount }} 条</span>
+        </div>
+        <div v-if="projectRiskSummary.length" class="risk-panel-content">
+          <div
+            v-for="item in projectRiskSummary"
+            :key="item.name"
+            class="risk-panel-row"
+            @click="selectedRiskProject = item.name"
+          >
+            <span class="risk-panel-name">{{ item.name }}</span>
+            <span class="risk-panel-badge" :class="item.status">{{ item.count }} 条</span>
+            <span class="risk-panel-arrow">›</span>
+          </div>
+        </div>
+        <div v-else class="risk-panel-empty">暂无项目数据</div>
+      </template>
+
+      <template v-else>
+        <div class="risk-panel-header risk-detail-header">
+          <button class="risk-back-btn" @click="selectedRiskProject = null">← 返回</button>
+          <span class="risk-detail-title">{{ selectedRiskProject }}</span>
+        </div>
+        <div v-if="projectRisks.length" class="risk-panel-content">
+          <div v-for="item in projectRisks" :key="item.id" class="risk-detail-item">
+            <div class="risk-detail-top">
+              <span
+                class="risk-level-tag"
+                :style="{ background: (RISK_LEVEL_COLOR[item.level] || '#94a3b8') + '33', color: RISK_LEVEL_COLOR[item.level] || '#94a3b8', borderColor: RISK_LEVEL_COLOR[item.level] || '#94a3b8' }"
+              >{{ item.level || '未分级' }}</span>
+              <span class="risk-detail-desc">{{ item.desc || '无描述' }}</span>
+              <span class="risk-processed-tag" :class="(item.processed || item.workflowStep === 4) ? 'done' : 'pending'">{{ (item.processed || item.workflowStep === 4) ? '已处理' : '未处理' }}</span>
+            </div>
+            <div class="risk-detail-workflow">
+              <span
+                v-for="(label, idx) in WF_LABELS"
+                :key="idx"
+                class="wf-step-dot"
+                :class="{ 'wf-done': item.workflowStep >= idx, 'wf-current': item.workflowStep === idx }"
+              >{{ label }}</span>
+            </div>
+            <div v-if="item.discoverPlace || item.discoverTime" class="risk-detail-meta">
+              <span v-if="item.discoverTime">发现：{{ item.discoverTime }}</span>
+              <span v-if="item.discoverPlace">地点：{{ item.discoverPlace }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="risk-panel-empty">该项目暂无风险记录</div>
+      </template>
+    </div>
+    <div class="side-box"></div>
+  </div>
+  <div class="side-boxes right-boxes">
+    <div class="side-box workflow-box workflow-box-top">
+      <div class="risk-summary-header">
+        <span>各项目风险流程进度</span>
+        <span class="risk-summary-total">整体完成率 {{ overallCompletionRate }}%</span>
+      </div>
+      <div v-if="projectWorkflowSummary.length" class="risk-summary-content">
+        <div v-for="item in projectWorkflowSummary" :key="item.name" class="workflow-project-item">
+          <div class="workflow-project-header">
+            <span class="risk-project-name">{{ item.name }}</span>
+            <span class="workflow-rate" :class="{ 'rate-done': item.rate === 100 }">{{ item.rate }}%</span>
+          </div>
+          <div class="workflow-progress-bar">
+            <div class="workflow-progress-fill" :style="{ width: item.rate + '%' }"></div>
+          </div>
+          <div class="workflow-step-row">
+            <span
+              v-for="ws in WORKFLOW_STEPS" :key="ws.step"
+              class="wf-chip"
+              :style="{ background: item.stepCounts[ws.step] > 0 ? ws.color + '33' : 'transparent', borderColor: item.stepCounts[ws.step] > 0 ? ws.color : 'rgba(255,255,255,0.15)', color: item.stepCounts[ws.step] > 0 ? ws.color : 'rgba(255,255,255,0.3)' }"
+            >{{ ws.label }}&nbsp;{{ item.stepCounts[ws.step] }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="risk-summary-empty">暂无项目数据</div>
+    </div>
+    <div class="side-box workflow-box">
+      <div class="risk-summary-header">
+        <span>流程阶段汇总</span>
+        <span class="risk-summary-total">共 {{ totalRiskCount }} 条</span>
+      </div>
+      <div v-if="totalRiskCount > 0" class="workflow-totals-content">
+        <div v-for="ws in workflowStepTotals" :key="ws.step" class="workflow-total-item">
+          <div class="workflow-total-left">
+            <span class="wf-dot" :style="{ background: ws.color }"></span>
+            <span class="workflow-total-label">{{ ws.label }}</span>
+          </div>
+          <div class="workflow-total-right">
+            <div class="workflow-total-bar-track">
+              <div
+                class="workflow-total-bar-fill"
+                :style="{ width: totalRiskCount > 0 ? (ws.count / totalRiskCount * 100) + '%' : '0%', background: ws.color }"
+              ></div>
+            </div>
+            <span class="workflow-total-count" :style="{ color: ws.color }">{{ ws.count }} 条</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="risk-summary-empty">暂无风险数据</div>
+    </div>
+  </div>
+  <header>
+    <div class="china-map" v-html="chinaMapSvg"></div>
+  </header>
+</template>
+
+<style scoped>
+.side-boxes {
+  position: fixed;
+  top: 56px;
+  bottom: 0;
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  z-index: 999;
+}
+
+.left-boxes {
+  left: 0;
+}
+
+.right-boxes {
+  right: 0;
+}
+
+.side-box {
+  width: 100%;
+  height: 360px;
+  background-color: rgba(51, 153, 255, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 8px;
+}
+
+header {
+  grid-column: 1 / -1;
+  margin-top: 56px;
+}
+
+.china-map {
+  width: 90vw;
+  max-width: 600px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.china-map :deep(svg) {
+  width: 100%;
+  height: auto;
+}
+
+.china-map :deep(.land) {
+  cursor: pointer;
+  transition: fill 0.2s;
+}
+
+.china-map :deep(.land:hover) {
+  fill: #3b82f6;
+}
+
+.china-map :deep(.land-selected) {
+  fill: #3b82f6 !important;
+}
+
+.china-map :deep(#project-dots-group circle) {
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+}
+
+.risk-summary-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.risk-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background-color: rgba(30, 58, 95, 0.6);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.risk-summary-total {
+  font-size: 12px;
+  color: #fff;
+}
+
+.risk-summary-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.risk-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background-color: rgba(30, 58, 95, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #fff;
+}
+
+.risk-project-name {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  margin-right: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-project-count {
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.risk-project-count.has-risk {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.risk-summary-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+}
+
+.risk-panel-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.risk-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background-color: rgba(30, 58, 95, 0.65);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
+  flex-shrink: 0;
+}
+
+.risk-panel-sub {
+  font-size: 11px;
+  color: #fff;
+}
+
+.risk-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.risk-panel-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+}
+
+.risk-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  background-color: rgba(30, 58, 95, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.risk-panel-row:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.risk-panel-name {
+  flex: 1;
+  font-size: 13px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-panel-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  white-space: nowrap;
+}
+
+.risk-panel-badge.all-done {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+  font-weight: 600;
+}
+
+.risk-panel-badge.partial {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.risk-panel-badge.none-done {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  font-weight: 600;
+}
+
+.risk-panel-arrow {
+  font-size: 16px;
+  color: #fff;
+  line-height: 1;
+}
+
+.risk-detail-header {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.risk-back-btn {
+  background: none;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.risk-back-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.risk-detail-title {
+  font-size: 13px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-detail-item {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background-color: rgba(30, 58, 95, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 6px;
+}
+
+.risk-detail-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.risk-level-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.risk-detail-desc {
+  flex: 1;
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-processed-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.risk-processed-tag.done {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+
+.risk-processed-tag.pending {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.risk-detail-workflow {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.wf-step-dot {
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  white-space: nowrap;
+}
+
+.wf-step-dot.wf-done {
+  background: rgba(52, 211, 153, 0.18);
+  color: #34d399;
+}
+
+.wf-step-dot.wf-current {
+  background: rgba(96, 165, 250, 0.25);
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.risk-detail-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #fff;
+}
+
+.workflow-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workflow-project-item {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background-color: rgba(30, 58, 95, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+}
+
+.workflow-project-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.workflow-rate {
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.workflow-rate.rate-done {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.workflow-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.workflow-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #60a5fa, #34d399);
+  border-radius: 2px;
+  transition: width 0.4s;
+}
+
+.workflow-step-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wf-chip {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.workflow-totals-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+}
+
+.workflow-total-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workflow-total-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.wf-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.workflow-total-label {
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.workflow-total-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-total-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.workflow-total-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s;
+}
+
+.workflow-total-count {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  width: 36px;
+  text-align: right;
+}
+</style>

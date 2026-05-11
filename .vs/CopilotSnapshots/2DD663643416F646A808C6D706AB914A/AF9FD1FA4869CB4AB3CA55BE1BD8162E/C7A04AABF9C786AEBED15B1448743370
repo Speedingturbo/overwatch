@@ -1,0 +1,103 @@
+﻿import { Router } from 'express'
+import multer from 'multer'
+import db from '../db.js'
+import mammoth from 'mammoth'
+import * as XLSX from 'xlsx'
+
+const router = Router()
+const upload = multer({ storage: multer.memoryStorage() })
+
+// GET all files (metadata only, no blob)
+router.get('/', (req, res) => {
+  const rows = db.prepare("SELECT id, project, filename, mimetype, uploadTime, COALESCE(NULLIF(TRIM(category), ''), '其他文件') AS category FROM files").all()
+  res.json(rows)
+})
+
+// POST upload a file
+router.post('/', upload.single('file'), (req, res) => {
+  const { project, category } = req.body
+  if (!project || !req.file) return res.status(400).json({ error: 'Missing project or file' })
+
+  const { originalname, mimetype, buffer } = req.file
+  const filename = Buffer.from(originalname, 'latin1').toString('utf8')
+  const now = new Date()
+  const uploadTime = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+  const fileCategory = (typeof category === 'string' ? category.trim() : '') || '其他文件'
+
+  const stmt = db.prepare('INSERT INTO files (project, filename, mimetype, data, uploadTime, category) VALUES (?, ?, ?, ?, ?, ?)')
+  const info = stmt.run(project, filename, mimetype, buffer, uploadTime, fileCategory)
+  res.json({ id: info.lastInsertRowid, project, filename, mimetype, uploadTime, category: fileCategory })
+})
+
+// GET download a file by id
+router.get('/:id/download', (req, res) => {
+  const row = db.prepare('SELECT filename, mimetype, data FROM files WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+
+  res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(row.filename) + '"')
+  res.setHeader('Content-Type', row.mimetype)
+  res.send(row.data)
+})
+
+// GET preview a file inline (for PDF iframe)
+router.get('/:id/preview', (req, res) => {
+  const row = db.prepare('SELECT filename, mimetype, data FROM files WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.setHeader('Content-Disposition', 'inline; filename="' + encodeURIComponent(row.filename) + '"')
+  res.setHeader('Content-Type', row.mimetype)
+  res.send(row.data)
+})
+
+// GET server-side HTML conversion for office formats
+router.get('/:id/preview-html', async (req, res) => {
+  const row = db.prepare('SELECT filename, mimetype, data FROM files WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  const mime = row.mimetype || ''
+  const filename = (row.filename || '').toLowerCase()
+  try {
+    if (mime.includes('wordprocessingml') || filename.endsWith('.docx')) {
+      const result = await mammoth.convertToHtml({ buffer: row.data })
+      return res.json({ type: 'html', content: result.value })
+    }
+    if (mime === 'application/msword' || filename.endsWith('.doc')) {
+      const text = extractTextFromDoc(row.data)
+      const html = text ? `<div style="white-space:pre-wrap;line-height:1.8;font-family:inherit">${escapeHtml(text)}</div>` : ''
+      return res.json({ type: text ? 'html' : 'unsupported', content: html })
+    }
+    if (mime.includes('spreadsheetml') || mime.includes('ms-excel') || filename.endsWith('.xlsx') || filename.endsWith('.xls')) {
+      const workbook = XLSX.read(row.data, { type: 'buffer' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      return res.json({ type: 'html', content: XLSX.utils.sheet_to_html(sheet, { editable: false }) })
+    }
+    return res.json({ type: 'unsupported' })
+  } catch (err) {
+    console.error('Preview HTML error:', err)
+    return res.json({ type: 'unsupported' })
+  }
+})
+
+function extractTextFromDoc(buffer) {
+  const chunks = []; let run = []
+  for (let i = 0; i < buffer.length - 1; i += 2) {
+    const code = buffer[i] | (buffer[i + 1] << 8)
+    const ok = (code >= 0x20 && code <= 0x7E) || (code >= 0x4E00 && code <= 0x9FFF) ||
+      (code >= 0x3000 && code <= 0x303F) || (code >= 0xFF00 && code <= 0xFFEF) ||
+      code === 0xA || code === 0xD
+    if (ok) run.push(String.fromCharCode(code))
+    else { if (run.length >= 4) chunks.push(run.join('')); run = [] }
+  }
+  if (run.length >= 4) chunks.push(run.join(''))
+  return chunks.filter(s => /[\u4E00-\u9FFF\w]{2,}/.test(s)).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// DELETE a file by id
+router.delete('/:id', (req, res) => {
+  db.prepare('DELETE FROM files WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
+export default router

@@ -51,11 +51,11 @@ export async function migrateLegacyUsers() {
   localStorage.removeItem(LEGACY_USERS_KEY)
 }
 
-export async function registerUser({ username, realName, phone, password }) {
+export async function registerUser({ username, realName, phone, password, role }) {
   const res = await fetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, realName, phone, password }),
+    body: JSON.stringify({ username, realName, phone, password, role }),
   })
 
   const data = await res.json()

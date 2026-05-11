@@ -11,7 +11,10 @@ const form = reactive({
   phone: '',
   password: '',
   confirmPassword: '',
+  role: '',
 })
+
+const ROLE_OPTIONS = ['监理工程师', '施工班组长', '项目经理']
 
 const errorMessage = ref('')
 const submitting = ref(false)
@@ -21,7 +24,7 @@ async function handleRegister() {
   const realName = form.realName.trim()
   const phone = form.phone.trim()
 
-  if (!username || !realName || !phone || !form.password || !form.confirmPassword) {
+  if (!username || !realName || !phone || !form.password || !form.confirmPassword || !form.role) {
     errorMessage.value = '请完整填写注册信息'
     return
   }
@@ -50,6 +53,7 @@ async function handleRegister() {
       realName,
       phone,
       password: form.password,
+      role: form.role,
     })
 
     await router.push({
@@ -102,6 +106,14 @@ async function handleRegister() {
           <div class="auth-field">
             <label>手机号</label>
             <input v-model="form.phone" type="tel" maxlength="11" placeholder="请输入手机号" autocomplete="tel">
+          </div>
+
+          <div class="auth-field">
+            <label>角色</label>
+            <select v-model="form.role" class="auth-select">
+              <option value="" disabled>请选择角色</option>
+              <option v-for="opt in ROLE_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
           </div>
 
           <div class="auth-row">
@@ -266,6 +278,24 @@ async function handleRegister() {
 
 .auth-field input::placeholder {
   color: #94a3b8;
+}
+
+.auth-select {
+  padding: 11px 14px;
+  font-size: 14px;
+  color: #0f172a;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  appearance: auto;
+}
+
+.auth-select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .auth-message {

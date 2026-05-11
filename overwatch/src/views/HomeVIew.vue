@@ -288,17 +288,26 @@ onMounted(async () => {
 <template>
   <!-- 左侧固定面板：上方显示项目进度图表，下方显示监理人员分布饼状图 -->
   <div class="side-boxes left-boxes">
-    <div class="side-box">
-      <ProgressChart :projects="projects" />
+    <div class="side-box chart-panel-box">
+      <div class="chart-panel-header">项目进度概览</div>
+      <div class="chart-panel-body">
+        <ProgressChart :projects="projects" />
+      </div>
     </div>
-    <div class="side-box">
-      <SupervisorChart :supervisorList="supervisorList" />
+    <div class="side-box chart-panel-box">
+      <div class="chart-panel-header">监理人员统计</div>
+      <div class="chart-panel-body">
+        <SupervisorChart :supervisorList="supervisorList" />
+      </div>
     </div>
   </div>
   <!-- 右侧固定面板：上方预留空位，下方显示人员分布饼状图 -->
   <div class="side-boxes right-boxes">
-    <div class="side-box">
-      <RiskBarChart :riskList="riskList" :overviewList="overviewList" />
+    <div class="side-box chart-panel-box">
+      <div class="chart-panel-header">风险数量概览</div>
+      <div class="chart-panel-body">
+        <RiskBarChart :riskList="riskList" :overviewList="overviewList" />
+      </div>
     </div>
     <div class="side-box file-summary-box">
       <div class="file-summary-header">
@@ -351,7 +360,7 @@ onMounted(async () => {
   .side-box {
     width: 100%;
     height: 360px;
-    background-color: rgba(51, 153, 255, 0.2);
+    background-color: rgba(15, 35, 70, 0.75);
     border: 1px solid rgba(59, 130, 246, 0.5);
     border-radius: 8px;
   }
@@ -376,7 +385,7 @@ onMounted(async () => {
 
 .file-summary-total {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: #fff;
 }
 
 .file-summary-content {
@@ -400,11 +409,12 @@ onMounted(async () => {
 .file-category-name {
   font-size: 13px;
   font-weight: 600;
+  color: #fff;
 }
 
 .file-category-count {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: #fff;
 }
 
 .file-summary-empty {
@@ -412,8 +422,30 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.7);
+  color: #fff;
   font-size: 14px;
+}
+
+.chart-panel-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chart-panel-header {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background-color: rgba(30, 58, 95, 0.65);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
+  flex-shrink: 0;
+}
+
+.chart-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 页面头部区域，用于放置中国地图 */

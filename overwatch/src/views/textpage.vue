@@ -258,6 +258,77 @@ function downloadMonthlyReport(report) {
   a.click()
 }
 
+// --- 文件预览 ---
+const filePreviewVisible = ref(false)
+const filePreviewTitle = ref('')
+const filePreviewType = ref('')   // 'pdf' | 'excel' | 'docx' | 'unsupported'
+const filePreviewUrl = ref('')
+const filePreviewHtml = ref('')
+const filePreviewLoading = ref(false)
+const filePreviewError = ref('')
+
+async function previewFile(report) {
+  filePreviewTitle.value = report.filename || '文件预览'
+  filePreviewHtml.value = ''
+  filePreviewUrl.value = ''
+  filePreviewError.value = ''
+  filePreviewLoading.value = true
+  filePreviewVisible.value = true
+
+  const mime = report.mimetype || ''
+  const name = (report.filename || '').toLowerCase()
+
+  const isPdf = mime === 'application/pdf' || name.endsWith('.pdf')
+  const isDocx = mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')
+  const isDoc = mime === 'application/msword' || name.endsWith('.doc')
+  const isXlsx = mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || name.endsWith('.xlsx')
+  const isXls = mime === 'application/vnd.ms-excel' || name.endsWith('.xls')
+
+  try {
+    if (isPdf) {
+      filePreviewType.value = 'pdf'
+      filePreviewUrl.value = '/api/files/' + report.id + '/download'
+    } else if (isDocx) {
+      filePreviewType.value = 'docx'
+      const mammoth = (await import('mammoth')).default
+      const res = await fetch('/api/files/' + report.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const result = await mammoth.convertToHtml({ arrayBuffer })
+      filePreviewHtml.value = result.value
+    } else if (isDoc) {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '暂不支持 .doc 格式在线预览，请下载后使用 Word 打开'
+    } else if (isXlsx || isXls) {
+      filePreviewType.value = 'excel'
+      const XLSX = await import('xlsx')
+      const res = await fetch('/api/files/' + report.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      let html = ''
+      workbook.SheetNames.forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName]
+        html += `<div class="excel-sheet-label">${sheetName}</div>`
+        html += XLSX.utils.sheet_to_html(sheet, { header: '', editable: false })
+      })
+      filePreviewHtml.value = html
+    } else {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '该文件类型暂不支持在线预览'
+    }
+  } catch (e) {
+    filePreviewType.value = 'unsupported'
+    filePreviewError.value = '文件预览失败：' + (e.message || '未知错误')
+  } finally {
+    filePreviewLoading.value = false
+  }
+}
+
+function closeFilePreview() {
+  filePreviewVisible.value = false
+  filePreviewUrl.value = ''
+  filePreviewHtml.value = ''
+}
+
 // 删除日报
 async function removeDailyReport(index) {
   const report = dailyReportForProject.value[index]
@@ -485,6 +556,7 @@ onMounted(async () => {
               <div class="report-filename">{{ report.filename || '监理日报' }}</div>
             </div>
             <div class="report-actions">
+              <button class="preview-btn" @click="previewFile(report)">预览</button>
               <button class="download-btn" @click="downloadDailyReport(report)">下载</button>
             </div>
           </div>
@@ -535,6 +607,7 @@ onMounted(async () => {
               <div class="report-filename">{{ report.filename || '监理周报' }}</div>
             </div>
             <div class="report-actions">
+              <button class="preview-btn" @click="previewFile(report)">预览</button>
               <button class="download-btn" @click="downloadWeeklyReport(report)">下载</button>
             </div>
           </div>
@@ -588,6 +661,7 @@ onMounted(async () => {
               <div class="report-filename">{{ report.filename || '监理月报' }}</div>
             </div>
             <div class="report-actions">
+              <button class="preview-btn" @click="previewFile(report)">预览</button>
               <button class="download-btn" @click="downloadMonthlyReport(report)">下载</button>
             </div>
           </div>
@@ -608,6 +682,24 @@ onMounted(async () => {
   <header>
     <div class="china-map" v-html="chinaMapSvg"></div>
   </header>
+
+  <!-- 文件预览弹窗 -->
+  <div v-if="filePreviewVisible" class="file-preview-overlay" @click.self="closeFilePreview">
+    <div class="file-preview-modal">
+      <div class="file-preview-header">
+        <span class="file-preview-title">{{ filePreviewTitle }}</span>
+        <button class="file-preview-close" @click="closeFilePreview">✕</button>
+      </div>
+      <div class="file-preview-body">
+        <div v-if="filePreviewLoading" class="file-preview-loading">加载中...</div>
+        <div v-else-if="filePreviewType === 'pdf'" class="file-preview-pdf">
+          <iframe :src="filePreviewUrl" frameborder="0"></iframe>
+        </div>
+        <div v-else-if="filePreviewType === 'docx' || filePreviewType === 'excel'" class="file-preview-html" v-html="filePreviewHtml"></div>
+        <div v-else-if="filePreviewType === 'unsupported'" class="file-preview-unsupported">{{ filePreviewError }}</div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -638,7 +730,7 @@ onMounted(async () => {
 .side-box {
   width: 100%;
   height: 360px;
-  background-color: rgba(51, 153, 255, 0.2);
+  background-color: rgba(15, 35, 70, 0.75);
   border: 1px solid rgba(59, 130, 246, 0.5);
   border-radius: 8px;
   display: flex;
@@ -699,7 +791,7 @@ onMounted(async () => {
 
 .placeholder-text {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
+  color: #fff;
   margin: 0;
 }
 
@@ -718,7 +810,7 @@ onMounted(async () => {
 
 .report-table th {
   background-color: rgba(30, 58, 95, 0.5);
-  color: #000;
+  color: #fff;
   padding: 8px 6px;
   text-align: left;
   font-weight: 600;
@@ -727,7 +819,7 @@ onMounted(async () => {
 
 .report-table td {
   padding: 8px 6px;
-  color: #000;
+  color: #fff;
   border-bottom: 1px solid rgba(59, 130, 246, 0.2);
 }
 
@@ -737,12 +829,12 @@ onMounted(async () => {
 
 .project-name {
   cursor: pointer;
-  color: #000;
+  color: #fff;
   text-decoration: underline;
 }
 
 .project-name:hover {
-  color: #333;
+  color: #fff;
 }
 
 .view-btn {
@@ -785,7 +877,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #000;
+  color: #fff;
 }
 
 .report-list {
@@ -817,13 +909,13 @@ onMounted(async () => {
 .report-date {
   font-size: 13px;
   font-weight: 600;
-  color: #000;
+  color: #fff;
   margin-bottom: 4px;
 }
 
 .report-filename {
   font-size: 12px;
-  color: #333;
+  color: #fff;
 }
 
 .report-actions {
@@ -862,7 +954,7 @@ onMounted(async () => {
 .empty-message {
   padding: 20px;
   text-align: center;
-  color: #000;
+  color: #fff;
   font-size: 13px;
 }
 
@@ -906,6 +998,158 @@ header {
 /* 项目标记圆点红色发光阴影 */
 .china-map :deep(#project-dots-group circle) {
   filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+}
+
+/* 预览按钮 */
+.preview-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  background-color: rgba(99, 102, 241, 0.85);
+  color: #fff;
+}
+
+.preview-btn:hover {
+  background-color: rgba(99, 102, 241, 1);
+}
+
+/* 文件预览弹窗遮罩 */
+.file-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+  z-index: 2000;
+}
+
+.file-preview-modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.file-preview-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e3a5f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #888;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.file-preview-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.file-preview-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.file-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+}
+
+.file-preview-pdf {
+  width: 100%;
+  height: 100%;
+}
+
+.file-preview-pdf iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  display: block;
+}
+
+.file-preview-html {
+  padding: 24px 28px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #333;
+}
+
+.file-preview-html :deep(table) {
+  border-collapse: collapse;
+  width: auto;
+  max-width: 100%;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.file-preview-html :deep(td),
+.file-preview-html :deep(th) {
+  border: 1px solid #ccc;
+  padding: 5px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.excel-sheet-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a5f;
+  background: #e8f0fa;
+  padding: 4px 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-bottom: 8px;
+  margin-top: 12px;
+}
+
+.file-preview-unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+  text-align: center;
+  padding: 24px;
 }
 </style>
 

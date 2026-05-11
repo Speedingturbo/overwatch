@@ -1,0 +1,4036 @@
+﻿<script setup>
+// 引入 Vue 组合式 API 和 ECharts 图表库
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+
+// 封装 HTTP 请求工具，统一处理 GET/POST/PUT/DELETE 四种方法
+// 每个方法自动将响应解析为 JSON 并返回
+const api = {
+  get: (url) => fetch(url).then(r => r.json()),
+  post: (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  put: (url, data) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  del: (url) => fetch(url, { method: 'DELETE' }).then(r => r.json())
+}
+
+// --- 侧边栏标签页状态管理 ---
+// 当前激活的标签页，默认显示「项目进度」
+const activeTab = ref('progress')
+// 「安全风险隐患」子菜单是否展开
+const riskMenuExpanded = ref(false)
+// 「安全风险隐患」下的四个子标签页标识
+const riskSubTabs = ['risk', 'riskHandle', 'hazard', 'preshift', 'inspection', 'quality']
+
+// 切换「安全风险隐患」子菜单的展开/折叠状态
+function toggleRiskMenu() {
+  riskMenuExpanded.value = !riskMenuExpanded.value
+}
+
+// 选中某个风险子标签页，并重置对应模块到初始列表视图
+function selectRiskSub(tab) {
+  activeTab.value = tab
+  if (tab === 'risk') backToRiskList()
+  if (tab === 'riskHandle') backToRiskHandleList()
+  if (tab === 'quality') backToQualityList()
+  if (tab === 'hazard') backToHazardList()
+  if (tab === 'preshift') backToPreshiftList()
+  if (tab === 'inspection') backToInspectionList()
+}
+
+// --- 项目概况模块 ---
+// 添加表单绑定的输入字段
+const ovName = ref('')        // 项目名称
+const ovContractor = ref('')  // 项目承建方
+const ovLocation = ref('')    // 项目位置
+const overviewList = ref([])  // 项目概况列表数据
+
+// 从后端加载所有项目概况数据
+async function loadOverview() {
+  overviewList.value = await api.get('/api/overview')
+}
+
+// 添加一条新的项目概况记录，成功后清空输入框
+async function addOverview() {
+  const name = ovName.value.trim()
+  const contractor = ovContractor.value.trim()
+  const location = ovLocation.value.trim()
+  if (!name || !contractor) return
+  const item = await api.post('/api/overview', { name, contractor, location })
+  overviewList.value.push(item)
+  ovName.value = ''
+  ovContractor.value = ''
+  ovLocation.value = ''
+}
+
+// 删除项目概况，同时联动清理关联的进度、人员、监理、风险、质量数据
+async function removeOverview(index) {
+  const item = overviewList.value[index]
+  await api.del('/api/overview/' + item.id)
+  overviewList.value.splice(index, 1)
+  // 联动删除（服务端已级联删除）
+  const pIdx = projects.value.findIndex(p => p.name === item.name)
+  if (pIdx !== -1) {
+    projects.value.splice(pIdx, 1)
+    nextTick(() => updateChart())
+  }
+  staffList.value = staffList.value.filter(s => s.project !== item.name)
+  if (staffActiveProject.value === item.name) staffActiveProject.value = null
+  supervisorList.value = supervisorList.value.filter(s => s.project !== item.name)
+  if (supervisorActiveProject.value === item.name) supervisorActiveProject.value = null
+  riskList.value = riskList.value.filter(r => r.project !== item.name)
+  if (riskActiveProject.value === item.name) riskActiveProject.value = null
+  if (riskHandleActiveProject.value === item.name) riskHandleActiveProject.value = null
+  qualityList.value = qualityList.value.filter(q => q.project !== item.name)
+  if (qualityActiveProject.value === item.name) qualityActiveProject.value = null
+  hazardList.value = hazardList.value.filter(h => h.project !== item.name)
+  if (hazardActiveProject.value === item.name) hazardActiveProject.value = null
+  preshiftList.value = preshiftList.value.filter(p => p.project !== item.name)
+  if (preshiftActiveProject.value === item.name) preshiftActiveProject.value = null
+  inspectionList.value = inspectionList.value.filter(i => i.project !== item.name)
+  if (inspectionActiveProject.value === item.name) inspectionActiveProject.value = null
+  fileList.value = fileList.value.filter(f => f.project !== item.name)
+  if (fileActiveProject.value === item.name) fileActiveProject.value = null
+}
+
+// --- 编辑项目概况（弹窗模式） ---
+const editOverviewVisible = ref(false)  // 编辑弹窗是否可见
+const editOverviewIndex = ref(-1)       // 当前编辑项在列表中的索引
+const editOvName = ref('')              // 编辑表单：项目名称
+const editOvContractor = ref('')        // 编辑表单：承建方
+const editOvLocation = ref('')          // 编辑表单：项目位置
+
+// 打开编辑弹窗，将当前项数据填充到表单
+function openEditOverview(index) {
+  const item = overviewList.value[index]
+  editOverviewIndex.value = index
+  editOvName.value = item.name
+  editOvContractor.value = item.contractor
+  editOvLocation.value = item.location
+  editOverviewVisible.value = true
+}
+
+// 关闭编辑弹窗
+function closeEditOverview() {
+  editOverviewVisible.value = false
+}
+
+// 保存编辑后的项目概况，如果名称变更则联动更新其他关联模块中的项目名
+async function saveEditOverview() {
+  const name = editOvName.value.trim()
+  const contractor = editOvContractor.value.trim()
+  const location = editOvLocation.value.trim()
+  if (!name || !contractor) return
+  const idx = editOverviewIndex.value
+  const oldName = overviewList.value[idx].name
+  const updated = await api.put('/api/overview/' + overviewList.value[idx].id, { name, contractor, location, oldName })
+  overviewList.value[idx] = updated
+  // 联动更新本地数据（服务端已级联更新）
+  if (oldName !== name) {
+    const p = projects.value.find(p => p.name === oldName)
+    if (p) { p.name = name; nextTick(() => updateChart()) }
+    staffList.value.forEach(s => { if (s.project === oldName) s.project = name })
+    if (staffActiveProject.value === oldName) staffActiveProject.value = name
+    supervisorList.value.forEach(s => { if (s.project === oldName) s.project = name })
+    if (supervisorActiveProject.value === oldName) supervisorActiveProject.value = name
+    riskList.value.forEach(r => { if (r.project === oldName) r.project = name })
+    if (riskActiveProject.value === oldName) riskActiveProject.value = name
+    if (riskHandleActiveProject.value === oldName) riskHandleActiveProject.value = name
+    qualityList.value.forEach(q => { if (q.project === oldName) q.project = name })
+    if (qualityActiveProject.value === oldName) qualityActiveProject.value = name
+    hazardList.value.forEach(h => { if (h.project === oldName) h.project = name })
+    if (hazardActiveProject.value === oldName) hazardActiveProject.value = name
+    preshiftList.value.forEach(p => { if (p.project === oldName) p.project = name })
+    if (preshiftActiveProject.value === oldName) preshiftActiveProject.value = name
+    inspectionList.value.forEach(i => { if (i.project === oldName) i.project = name })
+    if (inspectionActiveProject.value === oldName) inspectionActiveProject.value = name
+    fileList.value.forEach(f => { if (f.project === oldName) f.project = name })
+    if (fileActiveProject.value === oldName) fileActiveProject.value = name
+  }
+  editOverviewVisible.value = false
+}
+
+// --- 人员信息模块 ---
+// 添加表单绑定的输入字段
+const staffName = ref('')       // 姓名
+const staffPosition = ref('')   // 岗位
+const staffPhone = ref('')      // 联系方式
+const staffIdCard = ref('')     // 身份证号
+const staffCert = ref('')       // 持证情况
+const staffList = ref([])       // 所有人员数据列表
+const staffActiveProject = ref(null)  // 当前选中查看的项目名（二级视图）
+
+// 从后端加载所有人员数据
+async function loadStaff() {
+  staffList.value = await api.get('/api/staff')
+}
+
+// 计算属性：筛选出当前选中项目的人员列表
+const staffForProject = computed(() => {
+  if (!staffActiveProject.value) return []
+  return staffList.value.filter(s => s.project === staffActiveProject.value)
+})
+
+// 计算属性：统计每个项目的人员数量（用于项目列表一级视图显示）
+const staffCountByProject = computed(() => {
+  const map = {}
+  staffList.value.forEach(s => {
+    if (s.project) map[s.project] = (map[s.project] || 0) + 1
+  })
+  return map
+})
+
+// 计算属性：将项目概况与人员统计组合，生成饼状图所需的 { name, value } 数据
+const projectStaffStats = computed(() => {
+  return overviewList.value.map(ov => ({
+    name: ov.name,
+    value: staffCountByProject.value[ov.name] || 0
+  }))
+})
+
+// 「项目人员分布」饼状图的 ECharts 实例和 DOM 引用
+let projectStaffChartInstance = null
+const projectStaffChartRef = ref(null)
+
+// 确保图表实例已初始化（懒加载模式，首次调用时创建）
+function ensureProjectStaffChart() {
+  if (!projectStaffChartInstance && projectStaffChartRef.value) {
+    projectStaffChartInstance = echarts.init(projectStaffChartRef.value)
+  }
+}
+
+// 更新「项目人员分布」饼状图的配置和数据
+function updateProjectStaffChart() {
+  ensureProjectStaffChart()
+  if (!projectStaffChartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    series: [{
+      name: '项目人员分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['45%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333'
+      },
+      data: projectStaffStats.value
+    }]
+  }
+  projectStaffChartInstance.setOption(option, true)
+  projectStaffChartInstance.resize()
+}
+
+// 销毁「项目人员分布」饼状图实例，释放资源
+function disposeProjectStaffChart() {
+  if (projectStaffChartInstance) {
+    projectStaffChartInstance.dispose()
+    projectStaffChartInstance = null
+  }
+}
+
+// 点击某个项目，进入该项目的人员详情二级视图
+function enterStaffProject(projectName) {
+  disposeProjectStaffChart()
+  staffActiveProject.value = projectName
+  nextTick(() => updateStaffChart())
+}
+
+// 返回项目列表一级视图，销毁岗位图表并重新显示项目人员分布图
+function backToStaffList() {
+  if (staffChartInstance) {
+    staffChartInstance.dispose()
+    staffChartInstance = null
+  }
+  staffActiveProject.value = null
+  nextTick(() => updateProjectStaffChart())
+}
+
+// 添加人员到当前选中的项目，成功后清空表单并刷新岗位图表
+async function addStaff() {
+  const name = staffName.value.trim()
+  const position = staffPosition.value.trim()
+  const phone = staffPhone.value.trim()
+  const idCard = staffIdCard.value.trim()
+  const cert = staffCert.value.trim()
+  if (!name || !position || !phone || !idCard) return
+  const item = await api.post('/api/staff', { project: staffActiveProject.value, name, position, phone, idCard, cert })
+  staffList.value.push(item)
+  staffName.value = ''
+  staffPosition.value = ''
+  staffPhone.value = ''
+  staffIdCard.value = ''
+  staffCert.value = ''
+  nextTick(() => updateStaffChart())
+}
+
+// 删除指定人员记录，并刷新岗位图表
+async function removeStaff(filteredIndex) {
+  const item = staffForProject.value[filteredIndex]
+  await api.del('/api/staff/' + item.id)
+  const realIndex = staffList.value.findIndex(s => s.id === item.id)
+  if (realIndex !== -1) staffList.value.splice(realIndex, 1)
+  nextTick(() => updateStaffChart())
+}
+
+// 「岗位分布」饼状图的 ECharts 实例和 DOM 引用
+let staffChartInstance = null
+const staffChartRef = ref(null)
+
+// 计算属性：统计当前项目（或全部）人员的岗位分布，生成饼状图数据
+const positionStats = computed(() => {
+  const list = staffActiveProject.value ? staffForProject.value : staffList.value
+  const map = {}
+  list.forEach(s => {
+    const pos = s.position || '未知'
+    map[pos] = (map[pos] || 0) + 1
+  })
+  return Object.entries(map).map(([name, value]) => ({ name, value }))
+})
+
+// 确保岗位图表实例已初始化
+function ensureStaffChart() {
+  if (!staffChartInstance && staffChartRef.value) {
+    staffChartInstance = echarts.init(staffChartRef.value)
+  }
+}
+
+// 更新「岗位分布」饼状图的配置和数据
+function updateStaffChart() {
+  ensureStaffChart()
+  if (!staffChartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    series: [{
+      name: '岗位分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['45%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333'
+      },
+      data: positionStats.value
+    }]
+  }
+  staffChartInstance.setOption(option, true)
+  staffChartInstance.resize()
+}
+
+// --- 监理人员信息模块 ---
+// 添加表单绑定的输入字段
+const supervisorName = ref('')        // 监理人员姓名
+const supervisorPhone = ref('')       // 监理人员联系方式
+const supervisorList = ref([])        // 所有监理人员数据列表
+const supervisorActiveProject = ref(null)  // 当前选中查看的项目名（二级视图）
+
+// 从后端加载所有监理人员数据
+async function loadSupervisors() {
+  supervisorList.value = await api.get('/api/supervisors')
+}
+
+// 计算属性：筛选出当前选中项目的监理人员列表
+const supervisorForProject = computed(() => {
+  if (!supervisorActiveProject.value) return []
+  return supervisorList.value.filter(s => s.project === supervisorActiveProject.value)
+})
+
+// 计算属性：统计每个项目的监理人员数量
+const supervisorCountByProject = computed(() => {
+  const map = {}
+  supervisorList.value.forEach(s => {
+    if (s.project) map[s.project] = (map[s.project] || 0) + 1
+  })
+  return map
+})
+
+// 计算属性：将项目概况与监理统计组合，生成饼状图所需的 { name, value } 数据
+const projectSupervisorStats = computed(() => {
+  return overviewList.value.map(ov => ({
+    name: ov.name,
+    value: supervisorCountByProject.value[ov.name] || 0
+  }))
+})
+
+// 「项目监理人员分布」饼状图的 ECharts 实例和 DOM 引用
+let projectSupervisorChartInstance = null
+const projectSupervisorChartRef = ref(null)
+
+// 确保监理图表实例已初始化
+function ensureProjectSupervisorChart() {
+  if (!projectSupervisorChartInstance && projectSupervisorChartRef.value) {
+    projectSupervisorChartInstance = echarts.init(projectSupervisorChartRef.value)
+  }
+}
+
+// 更新「项目监理人员分布」饼状图的配置和数据
+function updateProjectSupervisorChart() {
+  ensureProjectSupervisorChart()
+  if (!projectSupervisorChartInstance) return
+  const option = {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+    legend: { orient: 'vertical', right: 20, top: 'center', textStyle: { color: '#333' } },
+    series: [{
+      name: '项目监理人员分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['45%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: {
+        show: true,
+        formatter: '{b}\n{c}人',
+        color: '#333'
+      },
+      data: projectSupervisorStats.value
+    }]
+  }
+  projectSupervisorChartInstance.setOption(option, true)
+  projectSupervisorChartInstance.resize()
+}
+
+// 销毁监理饼状图实例，释放资源
+function disposeProjectSupervisorChart() {
+  if (projectSupervisorChartInstance) {
+    projectSupervisorChartInstance.dispose()
+    projectSupervisorChartInstance = null
+  }
+}
+
+// 点击某个项目，进入该项目的监理人员详情二级视图
+function enterSupervisorProject(projectName) {
+  disposeProjectSupervisorChart()
+  supervisorActiveProject.value = projectName
+}
+
+// 返回监理项目列表一级视图，重新显示项目监理人员分布图
+function backToSupervisorList() {
+  supervisorActiveProject.value = null
+  nextTick(() => updateProjectSupervisorChart())
+}
+
+// 添加监理人员到当前项目，成功后清空表单
+async function addSupervisor() {
+  const name = supervisorName.value.trim()
+  const phone = supervisorPhone.value.trim()
+  if (!name || !phone) return
+  const item = await api.post('/api/supervisors', { project: supervisorActiveProject.value, name, phone })
+  supervisorList.value.push(item)
+  supervisorName.value = ''
+  supervisorPhone.value = ''
+}
+
+// 获取今天的日期字符串（格式：YYYY-MM-DD），用于考勤签到判断
+function getTodayStr() {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+
+// 判断某人员今天是否已签到
+function hasCheckedInToday(item) {
+  return item.lastCheckIn === getTodayStr()
+}
+
+// 执行签到操作，调用后端接口更新考勤记录
+async function checkIn(filteredIndex) {
+  const item = supervisorForProject.value[filteredIndex]
+  const today = getTodayStr()
+  if (item.lastCheckIn === today) return
+  const updated = await api.put('/api/supervisors/' + item.id + '/checkin', { today })
+  const realIndex = supervisorList.value.findIndex(s => s.id === item.id)
+  if (realIndex !== -1) supervisorList.value[realIndex] = updated
+}
+
+// 删除指定监理人员记录
+async function removeSupervisor(filteredIndex) {
+  const item = supervisorForProject.value[filteredIndex]
+  await api.del('/api/supervisors/' + item.id)
+  const realIndex = supervisorList.value.findIndex(s => s.id === item.id)
+  if (realIndex !== -1) supervisorList.value.splice(realIndex, 1)
+}
+
+// --- 安全风险隐患模块 ---
+const riskDesc = ref('')            // 风险描述
+const riskLevel = ref('')           // 风险等级（低/中/高/重大）
+const riskMeasure = ref('')         // 整改措施
+const riskDiscoverTime = ref('')    // 发现时间
+const riskDiscoverPlace = ref('')   // 发现地点
+const riskPhoto = ref('')           // 隐患照片（Base64）
+const riskList = ref([])            // 所有风险隐患数据列表
+const riskActiveProject = ref(null) // 当前选中查看的项目名
+const riskHandleActiveProject = ref(null) // 隐患处理当前选中项目名
+const riskModalVisible = ref(false) // 添加弹窗是否可见
+const riskFilterLevel = ref('')     // 风险等级筛选条件
+const previewPhoto = ref('')        // 照片预览弹层图片地址
+const riskEditIndex = ref(-1)       // 当前编辑项在列表中的索引
+const editRiskModalVisible = ref(false)  // 编辑弹窗是否可见
+
+// 从后端加载所有风险隐患数据
+async function loadRisks() {
+  riskList.value = await api.get('/api/risks')
+}
+
+// 计算属性：筛选当前项目的风险列表，支持按风险等级进一步过滤
+const riskForProject = computed(() => {
+  if (!riskActiveProject.value) return []
+  let list = riskList.value.filter(r => r.project === riskActiveProject.value)
+  if (riskFilterLevel.value) {
+    list = list.filter(r => r.level === riskFilterLevel.value)
+  }
+  return list
+})
+
+// 计算属性：统计每个项目的风险隐患数量
+const riskCountByProject = computed(() => {
+  const map = {}
+  riskList.value.forEach(r => {
+    if (r.project) map[r.project] = (map[r.project] || 0) + 1
+  })
+  return map
+})
+
+// 点击某个项目，进入该项目的风险隐患详情二级视图
+function enterRiskProject(projectName) {
+  disposeRiskBarChart()
+  riskActiveProject.value = projectName
+  riskFilterLevel.value = ''
+}
+
+// 返回风险项目列表一级视图，重置筛选条件和弹窗状态
+function backToRiskList() {
+  riskActiveProject.value = null
+  riskFilterLevel.value = ''
+  riskModalVisible.value = false
+  nextTick(() => updateRiskBarChart())
+}
+
+const riskHandleForProject = computed(() => {
+  if (!riskHandleActiveProject.value) return []
+  return riskList.value.filter(r => r.project === riskHandleActiveProject.value)
+})
+
+const processedRiskCountByProject = computed(() => {
+  const map = {}
+  riskList.value.forEach(r => {
+    if (r.project && r.processed) map[r.project] = (map[r.project] || 0) + 1
+  })
+  return map
+})
+
+function enterRiskHandleProject(projectName) {
+  riskHandleActiveProject.value = projectName
+}
+
+function backToRiskHandleList() {
+  riskHandleActiveProject.value = null
+}
+
+async function toggleRiskProcessed(filteredIndex, processed) {
+  const item = riskHandleForProject.value[filteredIndex]
+  const updated = await api.put('/api/risks/' + item.id + '/process', { processed })
+  const realIndex = riskList.value.findIndex(r => r.id === item.id)
+  if (realIndex !== -1) riskList.value[realIndex] = updated
+}
+
+async function advanceWorkflow(filteredIndex, step) {
+  const item = riskHandleForProject.value[filteredIndex]
+  const userRole = currentUser.value?.role || ''
+  const updated = await api.put('/api/risks/' + item.id + '/workflow', { step, userRole })
+  if (updated.error) return
+  const realIndex = riskList.value.findIndex(r => r.id === item.id)
+  if (realIndex !== -1) riskList.value[realIndex] = updated
+}
+
+function getRiskProcessStatusLabel(item) {
+  return item.processed ? '已处理' : '未处理'
+}
+
+// --- 风险统计柱状图 ---
+const riskLevels = ['低', '中', '高', '重大']
+const riskLevelColors = { '低': '#27ae60', '中': '#f39c12', '高': '#e74c3c', '重大': '#8e44ad' }
+
+const riskStatsByProjectAndLevel = computed(() => {
+  const projectNames = overviewList.value.map(ov => ov.name)
+  const map = {}
+  projectNames.forEach(name => {
+    map[name] = { '低': 0, '中': 0, '高': 0, '重大': 0 }
+  })
+  riskList.value.forEach(r => {
+    if (r.project && map[r.project] && riskLevels.includes(r.level)) {
+      map[r.project][r.level]++
+    }
+  })
+  return { projectNames, map }
+})
+
+let riskBarChartInstance = null
+const riskBarChartRef = ref(null)
+
+function ensureRiskBarChart() {
+  if (!riskBarChartInstance && riskBarChartRef.value) {
+    riskBarChartInstance = echarts.init(riskBarChartRef.value)
+  }
+}
+
+function updateRiskBarChart() {
+  ensureRiskBarChart()
+  if (!riskBarChartInstance) return
+  const { projectNames, map } = riskStatsByProjectAndLevel.value
+  const series = riskLevels.map(level => ({
+    name: level,
+    type: 'bar',
+    stack: 'risk',
+    barMaxWidth: 50,
+    itemStyle: { color: riskLevelColors[level] },
+    label: {
+      show: true,
+      position: 'inside',
+      formatter: (params) => params.value > 0 ? params.value : '',
+      color: '#fff',
+      fontSize: 12
+    },
+    data: projectNames.map(name => map[name][level])
+  }))
+  const option = {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: riskLevels, top: 0, textStyle: { color: '#333' } },
+    xAxis: {
+      type: 'category',
+      data: projectNames,
+      axisLabel: { rotate: projectNames.length > 6 ? 30 : 0 }
+    },
+    yAxis: { type: 'value', name: '数量', minInterval: 1 },
+    series,
+    grid: { left: 60, right: 30, top: 50, bottom: 50 }
+  }
+  riskBarChartInstance.setOption(option, true)
+  riskBarChartInstance.resize()
+}
+
+function disposeRiskBarChart() {
+  if (riskBarChartInstance) {
+    riskBarChartInstance.dispose()
+    riskBarChartInstance = null
+  }
+}
+
+// 打开「添加风险隐患」弹窗
+function openRiskModal() {
+  riskDesc.value = ''
+  riskDiscoverTime.value = getTodayStr()
+  riskDiscoverPlace.value = ''
+  riskLevel.value = ''
+  riskPhoto.value = ''
+  riskMeasure.value = ''
+  riskModalVisible.value = true
+}
+
+// 关闭添加风险弹窗
+function closeRiskModal() {
+  riskModalVisible.value = false
+}
+
+// 处理照片上传：将图片文件读取为 Base64 字符串存入 riskPhoto
+function handleRiskPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => { riskPhoto.value = reader.result }
+  reader.readAsDataURL(file)
+}
+
+// 提交新的风险隐患记录到后端，成功后关闭弹窗
+async function addRisk() {
+  const desc = riskDesc.value.trim()
+  const level = riskLevel.value.trim()
+  const measure = riskMeasure.value.trim()
+  const discoverTime = riskDiscoverTime.value.trim()
+  const discoverPlace = riskDiscoverPlace.value.trim()
+  if (!desc || !level) return
+  const item = await api.post('/api/risks', {
+    project: riskActiveProject.value,
+    desc,
+    discoverTime: discoverTime || getTodayStr(),
+    discoverPlace,
+    level,
+    photo: riskPhoto.value,
+    measure
+  })
+  riskList.value.push(item)
+  riskModalVisible.value = false
+}
+
+// 删除指定风险隐患记录
+async function removeRisk(filteredIndex) {
+  const item = riskForProject.value[filteredIndex]
+  await api.del('/api/risks/' + item.id)
+  const realIndex = riskList.value.findIndex(r => r.id === item.id)
+  if (realIndex !== -1) riskList.value.splice(realIndex, 1)
+}
+
+// 打开「编辑风险隐患」弹窗，将当前记录数据填充到表单
+function openEditRisk(filteredIndex) {
+  const item = riskForProject.value[filteredIndex]
+  riskEditIndex.value = riskList.value.indexOf(item)
+  riskDesc.value = item.desc || ''
+  riskDiscoverTime.value = item.discoverTime || item.date || ''
+  riskDiscoverPlace.value = item.discoverPlace || ''
+  riskLevel.value = item.level || ''
+  riskPhoto.value = item.photo || ''
+  riskMeasure.value = item.measure || ''
+  editRiskModalVisible.value = true
+}
+
+// 关闭编辑风险弹窗
+function closeEditRisk() {
+  editRiskModalVisible.value = false
+}
+
+// 保存编辑后的风险隐患记录到后端
+async function saveEditRisk() {
+  const idx = riskEditIndex.value
+  if (idx < 0) return
+  const desc = riskDesc.value.trim()
+  const level = riskLevel.value.trim()
+  if (!desc || !level) return
+  const item = riskList.value[idx]
+  const updated = await api.put('/api/risks/' + item.id, {
+    desc,
+    discoverTime: riskDiscoverTime.value.trim() || getTodayStr(),
+    discoverPlace: riskDiscoverPlace.value.trim(),
+    level,
+    photo: riskPhoto.value,
+    measure: riskMeasure.value.trim()
+  })
+  riskList.value[idx] = updated
+  editRiskModalVisible.value = false
+}
+
+// --- 质量管理模块 ---
+const qualityList = ref([])              // 所有质量管理数据列表
+const qualityActiveProject = ref(null)   // 当前选中查看的项目名
+const qualityModalVisible = ref(false)   // 添加弹窗是否可见
+// 三个质量检查类别的照片和内容字段
+const qualityRebarPhoto = ref('')        // 钢筋照片
+const qualityRebarContent = ref('')      // 钢筋内容
+const qualityWiringPhoto = ref('')       // 基础布线照片
+const qualityWiringContent = ref('')     // 基础布线内容
+const qualityEquipmentPhoto = ref('')    // 设备安装照片
+const qualityEquipmentContent = ref('')  // 设备安装内容
+const qualityPreviewPhoto = ref('')      // 照片预览弹层图片地址
+const qualityEditIndex = ref(-1)         // 当前编辑项的索引
+const editQualityModalVisible = ref(false)  // 编辑弹窗是否可见
+
+// 从后端加载所有质量管理数据
+async function loadQuality() {
+  qualityList.value = await api.get('/api/quality')
+}
+
+// 计算属性：筛选当前项目的质量记录列表
+const qualityForProject = computed(() => {
+  if (!qualityActiveProject.value) return []
+  return qualityList.value.filter(q => q.project === qualityActiveProject.value)
+})
+
+// 计算属性：统计每个项目的质量记录数量
+const qualityCountByProject = computed(() => {
+  const map = {}
+  qualityList.value.forEach(q => {
+    if (q.project) map[q.project] = (map[q.project] || 0) + 1
+  })
+  return map
+})
+
+// 点击某个项目，进入该项目的质量管理详情二级视图
+function enterQualityProject(projectName) {
+  qualityActiveProject.value = projectName
+}
+
+// 返回质量项目列表一级视图，重置弹窗状态
+function backToQualityList() {
+  qualityActiveProject.value = null
+  qualityModalVisible.value = false
+}
+
+// 打开「添加质量管理」弹窗，重置所有表单字段
+function openQualityModal() {
+  qualityEditIndex.value = -1
+  qualityRebarPhoto.value = ''
+  qualityRebarContent.value = ''
+  qualityWiringPhoto.value = ''
+  qualityWiringContent.value = ''
+  qualityEquipmentPhoto.value = ''
+  qualityEquipmentContent.value = ''
+  qualityModalVisible.value = true
+}
+
+// 关闭质量添加弹窗
+function closeQualityModal() {
+  qualityModalVisible.value = false
+}
+
+// 处理质量照片上传：根据 field 参数将图片存入对应的响应式变量
+function handleQualityPhoto(field, e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (field === 'rebar') qualityRebarPhoto.value = reader.result
+    else if (field === 'wiring') qualityWiringPhoto.value = reader.result
+    else if (field === 'equipment') qualityEquipmentPhoto.value = reader.result
+  }
+  reader.readAsDataURL(file)
+}
+
+async function addQuality() {
+  const rebar = qualityRebarContent.value.trim()
+  const wiring = qualityWiringContent.value.trim()
+  const equipment = qualityEquipmentContent.value.trim()
+  if (!rebar && !wiring && !equipment) return
+  const item = await api.post('/api/quality', {
+    project: qualityActiveProject.value,
+    date: getTodayStr(),
+    rebarPhoto: qualityRebarPhoto.value,
+    rebarContent: rebar,
+    wiringPhoto: qualityWiringPhoto.value,
+    wiringContent: wiring,
+    equipmentPhoto: qualityEquipmentPhoto.value,
+    equipmentContent: equipment
+  })
+  qualityList.value.push(item)
+  qualityModalVisible.value = false
+}
+
+function openEditQuality(filteredIndex) {
+  const item = qualityForProject.value[filteredIndex]
+  qualityEditIndex.value = qualityList.value.indexOf(item)
+  qualityRebarPhoto.value = (item.rebar && item.rebar.photo) || ''
+  qualityRebarContent.value = (item.rebar && item.rebar.content) || ''
+  qualityWiringPhoto.value = (item.wiring && item.wiring.photo) || ''
+  qualityWiringContent.value = (item.wiring && item.wiring.content) || ''
+  qualityEquipmentPhoto.value = (item.equipment && item.equipment.photo) || ''
+  qualityEquipmentContent.value = (item.equipment && item.equipment.content) || ''
+  editQualityModalVisible.value = true
+}
+
+function closeEditQuality() {
+  editQualityModalVisible.value = false
+}
+
+async function saveEditQuality() {
+  const idx = qualityEditIndex.value
+  if (idx < 0) return
+  const rebar = qualityRebarContent.value.trim()
+  const wiring = qualityWiringContent.value.trim()
+  const equipment = qualityEquipmentContent.value.trim()
+  if (!rebar && !wiring && !equipment) return
+  const item = qualityList.value[idx]
+  const updated = await api.put('/api/quality/' + item.id, {
+    rebarPhoto: qualityRebarPhoto.value,
+    rebarContent: rebar,
+    wiringPhoto: qualityWiringPhoto.value,
+    wiringContent: wiring,
+    equipmentPhoto: qualityEquipmentPhoto.value,
+    equipmentContent: equipment
+  })
+  qualityList.value[idx] = updated
+  editQualityModalVisible.value = false
+}
+
+async function removeQuality(filteredIndex) {
+  const item = qualityForProject.value[filteredIndex]
+  await api.del('/api/quality/' + item.id)
+  const realIndex = qualityList.value.findIndex(q => q.id === item.id)
+  if (realIndex !== -1) qualityList.value.splice(realIndex, 1)
+}
+
+// --- 危险源辨识清单模块 ---
+// 添加表单绑定的输入字段
+const hazardName = ref('')              // 危险源名称
+const hazardLocation = ref('')          // 危险源存在位置
+const hazardType = ref('')              // 危险有害因素类别
+const hazardPossibleAccident = ref('')  // 可能导致的事故类型
+const hazardControlMeasure = ref('')    // 控制措施
+const hazardLevel = ref('')             // 风险等级（低/中/高/重大）
+const hazardList = ref([])              // 所有危险源辨识数据列表
+const hazardActiveProject = ref(null)   // 当前选中查看的项目名（二级视图）
+const hazardModalVisible = ref(false)   // 添加弹窗是否可见
+const hazardFilterLevel = ref('')       // 风险等级筛选条件
+const hazardEditIndex = ref(-1)         // 当前编辑项在列表中的索引
+const editHazardModalVisible = ref(false)  // 编辑弹窗是否可见
+
+// 从后端加载所有危险源辨识数据
+async function loadHazards() {
+  hazardList.value = await api.get('/api/hazards')
+}
+
+// 计算属性：筛选当前项目的危险源列表，支持按风险等级进一步过滤
+const hazardForProject = computed(() => {
+  if (!hazardActiveProject.value) return []
+  let list = hazardList.value.filter(h => h.project === hazardActiveProject.value)
+  if (hazardFilterLevel.value) {
+    list = list.filter(h => h.level === hazardFilterLevel.value)
+  }
+  return list
+})
+
+// 计算属性：统计每个项目的危险源数量
+const hazardCountByProject = computed(() => {
+  const map = {}
+  hazardList.value.forEach(h => {
+    if (h.project) map[h.project] = (map[h.project] || 0) + 1
+  })
+  return map
+})
+
+// 点击某个项目，进入该项目的危险源辨识详情二级视图
+function enterHazardProject(projectName) {
+  hazardActiveProject.value = projectName
+  hazardFilterLevel.value = ''
+}
+
+// 返回危险源项目列表一级视图，重置筛选条件和弹窗状态
+function backToHazardList() {
+  hazardActiveProject.value = null
+  hazardFilterLevel.value = ''
+  hazardModalVisible.value = false
+}
+
+// 打开「添加危险源」弹窗，重置表单字段
+function openHazardModal() {
+  hazardName.value = ''
+  hazardLocation.value = ''
+  hazardType.value = ''
+  hazardPossibleAccident.value = ''
+  hazardControlMeasure.value = ''
+  hazardLevel.value = ''
+  hazardModalVisible.value = true
+}
+
+// 关闭添加危险源弹窗
+function closeHazardModal() {
+  hazardModalVisible.value = false
+}
+
+// 提交新的危险源辨识记录到后端，成功后关闭弹窗
+async function addHazard() {
+  const name = hazardName.value.trim()
+  const location = hazardLocation.value.trim()
+  const type = hazardType.value.trim()
+  const possibleAccident = hazardPossibleAccident.value.trim()
+  const controlMeasure = hazardControlMeasure.value.trim()
+  const level = hazardLevel.value.trim()
+  if (!name || !type || !level) return
+  const item = await api.post('/api/hazards', {
+    project: hazardActiveProject.value,
+    name,
+    location,
+    hazardType: type,
+    possibleAccident,
+    controlMeasure,
+    level
+  })
+  hazardList.value.push(item)
+  hazardModalVisible.value = false
+}
+
+// 删除指定危险源辨识记录
+async function removeHazard(filteredIndex) {
+  const item = hazardForProject.value[filteredIndex]
+  await api.del('/api/hazards/' + item.id)
+  const realIndex = hazardList.value.findIndex(h => h.id === item.id)
+  if (realIndex !== -1) hazardList.value.splice(realIndex, 1)
+}
+
+// 打开「编辑危险源」弹窗，将当前记录数据填充到表单
+function openEditHazard(filteredIndex) {
+  const item = hazardForProject.value[filteredIndex]
+  hazardEditIndex.value = hazardList.value.indexOf(item)
+  hazardName.value = item.name || ''
+  hazardLocation.value = item.location || ''
+  hazardType.value = item.hazardType || ''
+  hazardPossibleAccident.value = item.possibleAccident || ''
+  hazardControlMeasure.value = item.controlMeasure || ''
+  hazardLevel.value = item.level || ''
+  editHazardModalVisible.value = true
+}
+
+// 关闭编辑危险源弹窗
+function closeEditHazard() {
+  editHazardModalVisible.value = false
+}
+
+// 保存编辑后的危险源辨识记录到后端
+async function saveEditHazard() {
+  const idx = hazardEditIndex.value
+  if (idx < 0) return
+  const name = hazardName.value.trim()
+  const type = hazardType.value.trim()
+  const level = hazardLevel.value.trim()
+  if (!name || !type || !level) return
+  const item = hazardList.value[idx]
+  const updated = await api.put('/api/hazards/' + item.id, {
+    name,
+    location: hazardLocation.value.trim(),
+    hazardType: type,
+    possibleAccident: hazardPossibleAccident.value.trim(),
+    controlMeasure: hazardControlMeasure.value.trim(),
+    level
+  })
+  hazardList.value[idx] = updated
+  editHazardModalVisible.value = false
+}
+
+// --- 设备巡检模块 ---
+const inspectionList = ref([])
+const inspectionActiveProject = ref(null)
+const inspectionModalVisible = ref(false)
+const inspectionDeviceName = ref('')
+const inspectionCheckContent = ref('')
+const inspectionFoundRisk = ref('')
+const inspectionWarrantyStatus = ref('')
+const inspectionEditIndex = ref(-1)
+const editInspectionModalVisible = ref(false)
+
+async function loadInspections() {
+  inspectionList.value = await api.get('/api/device-inspections')
+}
+
+const inspectionForProject = computed(() => {
+  if (!inspectionActiveProject.value) return []
+  return inspectionList.value.filter(item => item.project === inspectionActiveProject.value)
+})
+
+const inspectionCountByProject = computed(() => {
+  const map = {}
+  inspectionList.value.forEach(item => {
+    if (item.project) map[item.project] = (map[item.project] || 0) + 1
+  })
+  return map
+})
+
+function enterInspectionProject(projectName) {
+  inspectionActiveProject.value = projectName
+}
+
+function backToInspectionList() {
+  inspectionActiveProject.value = null
+  inspectionModalVisible.value = false
+  editInspectionModalVisible.value = false
+}
+
+function resetInspectionForm() {
+  inspectionDeviceName.value = ''
+  inspectionCheckContent.value = ''
+  inspectionFoundRisk.value = ''
+  inspectionWarrantyStatus.value = ''
+}
+
+function openInspectionModal() {
+  inspectionEditIndex.value = -1
+  resetInspectionForm()
+  inspectionModalVisible.value = true
+}
+
+function closeInspectionModal() {
+  inspectionModalVisible.value = false
+}
+
+async function addInspection() {
+  const deviceName = inspectionDeviceName.value.trim()
+  if (!deviceName) return
+
+  const item = await api.post('/api/device-inspections', {
+    project: inspectionActiveProject.value,
+    deviceName,
+    checkContent: inspectionCheckContent.value.trim(),
+    foundRisk: inspectionFoundRisk.value.trim(),
+    warrantyStatus: inspectionWarrantyStatus.value.trim()
+  })
+
+  inspectionList.value.unshift(item)
+  inspectionModalVisible.value = false
+}
+
+function openEditInspection(filteredIndex) {
+  const item = inspectionForProject.value[filteredIndex]
+  inspectionEditIndex.value = inspectionList.value.indexOf(item)
+  inspectionDeviceName.value = item.deviceName || ''
+  inspectionCheckContent.value = item.checkContent || ''
+  inspectionFoundRisk.value = item.foundRisk || ''
+  inspectionWarrantyStatus.value = item.warrantyStatus || ''
+  editInspectionModalVisible.value = true
+}
+
+function closeEditInspection() {
+  editInspectionModalVisible.value = false
+}
+
+async function saveEditInspection() {
+  const idx = inspectionEditIndex.value
+  if (idx < 0) return
+
+  const deviceName = inspectionDeviceName.value.trim()
+  if (!deviceName) return
+
+  const item = inspectionList.value[idx]
+  const updated = await api.put('/api/device-inspections/' + item.id, {
+    deviceName,
+    checkContent: inspectionCheckContent.value.trim(),
+    foundRisk: inspectionFoundRisk.value.trim(),
+    warrantyStatus: inspectionWarrantyStatus.value.trim()
+  })
+
+  inspectionList.value[idx] = updated
+  editInspectionModalVisible.value = false
+}
+
+async function removeInspection(filteredIndex) {
+  const item = inspectionForProject.value[filteredIndex]
+  await api.del('/api/device-inspections/' + item.id)
+  const realIndex = inspectionList.value.findIndex(i => i.id === item.id)
+  if (realIndex !== -1) inspectionList.value.splice(realIndex, 1)
+}
+
+// --- 班前教育（站例会）模块 ---
+// 添加表单绑定的输入字段
+const preshiftList = ref([])                  // 所有站例会记录数据列表
+const preshiftActiveProject = ref(null)       // 当前选中查看的项目名（二级视图）
+const preshiftModalVisible = ref(false)       // 添加弹窗是否可见
+const preshiftDate = ref('')                  // 例会日期
+const preshiftHost = ref('')                  // 会议主持人
+const preshiftStatus = ref('')                // 例会召开情况
+const preshiftEditIndex = ref(-1)             // 当前编辑项在列表中的索引
+const editPreshiftModalVisible = ref(false)   // 编辑弹窗是否可见
+
+// 从后端加载所有站例会记录数据
+async function loadPreshift() {
+  preshiftList.value = await api.get('/api/preshift')
+}
+
+// 计算属性：筛选出当前选中项目的站例会记录列表
+const preshiftForProject = computed(() => {
+  if (!preshiftActiveProject.value) return []
+  return preshiftList.value.filter(p => p.project === preshiftActiveProject.value)
+})
+
+// 计算属性：统计每个项目的站例会记录数量（用于项目列表一级视图显示）
+const preshiftCountByProject = computed(() => {
+  const map = {}
+  preshiftList.value.forEach(p => {
+    if (p.project) map[p.project] = (map[p.project] || 0) + 1
+  })
+  return map
+})
+
+// 点击某个项目，进入该项目的站例会记录详情二级视图
+function enterPreshiftProject(projectName) {
+  preshiftActiveProject.value = projectName
+}
+
+// 返回项目列表一级视图，重置弹窗状态
+function backToPreshiftList() {
+  preshiftActiveProject.value = null
+  preshiftModalVisible.value = false
+}
+
+// 打开「添加站例会记录」弹窗，重置表单字段并默认填充今天日期
+function openPreshiftModal() {
+  preshiftDate.value = getTodayStr()
+  preshiftHost.value = ''
+  preshiftStatus.value = ''
+  preshiftModalVisible.value = true
+}
+
+// 关闭添加站例会弹窗
+function closePreshiftModal() {
+  preshiftModalVisible.value = false
+}
+
+// 提交新的站例会记录到后端，成功后关闭弹窗
+async function addPreshift() {
+  const date = preshiftDate.value.trim()
+  const host = preshiftHost.value.trim()
+  const status = preshiftStatus.value.trim()
+  if (!date || !host || !status) return
+  const item = await api.post('/api/preshift', {
+    project: preshiftActiveProject.value,
+    date,
+    host,
+    status
+  })
+  preshiftList.value.push(item)
+  preshiftModalVisible.value = false
+}
+
+// 删除指定站例会记录
+async function removePreshift(filteredIndex) {
+  const item = preshiftForProject.value[filteredIndex]
+  await api.del('/api/preshift/' + item.id)
+  const realIndex = preshiftList.value.findIndex(p => p.id === item.id)
+  if (realIndex !== -1) preshiftList.value.splice(realIndex, 1)
+}
+
+// 打开「编辑站例会记录」弹窗，将当前记录数据填充到表单
+function openEditPreshift(filteredIndex) {
+  const item = preshiftForProject.value[filteredIndex]
+  preshiftEditIndex.value = preshiftList.value.indexOf(item)
+  preshiftDate.value = item.date || ''
+  preshiftHost.value = item.host || ''
+  preshiftStatus.value = item.status || ''
+  editPreshiftModalVisible.value = true
+}
+
+// 关闭编辑站例会弹窗
+function closeEditPreshift() {
+  editPreshiftModalVisible.value = false
+}
+
+// 保存编辑后的站例会记录到后端
+async function saveEditPreshift() {
+  const idx = preshiftEditIndex.value
+  if (idx < 0) return
+  const date = preshiftDate.value.trim()
+  const host = preshiftHost.value.trim()
+  const status = preshiftStatus.value.trim()
+  if (!date || !host || !status) return
+  const item = preshiftList.value[idx]
+  const updated = await api.put('/api/preshift/' + item.id, { date, host, status })
+  preshiftList.value[idx] = updated
+  editPreshiftModalVisible.value = false
+}
+
+// --- 项目文件模块 ---
+const fileList = ref([])
+const fileActiveProject = ref(null)
+const fileInputRef = ref(null)
+const fileUploading = ref(false)
+const fileCategory = ref('其他文件')
+const fileUploadModalVisible = ref(false)  // 上传弹窗是否可见
+const fileFilterCategory = ref('')  // 文件筛选分类
+
+// 文件预览状态
+const filePreviewVisible = ref(false)
+const filePreviewTitle = ref('')
+const filePreviewType = ref('')   // 'pdf' | 'excel' | 'docx' | 'unsupported'
+const filePreviewUrl = ref('')    // PDF 用
+const filePreviewHtml = ref('')   // DOCX / Excel 用
+const filePreviewLoading = ref(false)
+const filePreviewError = ref('')
+
+async function previewFile(item) {
+  filePreviewTitle.value = item.filename
+  filePreviewHtml.value = ''
+  filePreviewUrl.value = ''
+  filePreviewError.value = ''
+  filePreviewLoading.value = true
+  filePreviewVisible.value = true
+
+  const mime = item.mimetype || ''
+  const name = (item.filename || '').toLowerCase()
+
+  const isPdf = mime === 'application/pdf' || name.endsWith('.pdf')
+  const isDocx = mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')
+  const isDoc = mime === 'application/msword' || name.endsWith('.doc')
+  const isXlsx = mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || name.endsWith('.xlsx')
+  const isXls = mime === 'application/vnd.ms-excel' || name.endsWith('.xls')
+
+  try {
+    if (isPdf) {
+      filePreviewType.value = 'pdf'
+      filePreviewUrl.value = '/api/files/' + item.id + '/download'
+    } else if (isDocx) {
+      filePreviewType.value = 'docx'
+      const mammoth = (await import('mammoth')).default
+      const res = await fetch('/api/files/' + item.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const result = await mammoth.convertToHtml({ arrayBuffer })
+      filePreviewHtml.value = result.value
+    } else if (isDoc) {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '暂不支持 .doc 格式在线预览，请下载后使用 Word 打开'
+    } else if (isXlsx || isXls) {
+      filePreviewType.value = 'excel'
+      const XLSX = await import('xlsx')
+      const res = await fetch('/api/files/' + item.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      let html = ''
+      workbook.SheetNames.forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName]
+        html += `<div class="excel-sheet-label">${sheetName}</div>`
+        html += XLSX.utils.sheet_to_html(sheet, { header: '', editable: false })
+      })
+      filePreviewHtml.value = html
+    } else {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '该文件类型暂不支持在线预览'
+    }
+  } catch (e) {
+    filePreviewType.value = 'unsupported'
+    filePreviewError.value = '文件预览失败：' + (e.message || '未知错误')
+  } finally {
+    filePreviewLoading.value = false
+  }
+}
+
+function closeFilePreview() {
+  filePreviewVisible.value = false
+  filePreviewUrl.value = ''
+  filePreviewHtml.value = ''
+}
+
+function normalizeFileCategory(category) {
+  const value = typeof category === 'string' ? category.trim() : ''
+  return value || '其他文件'
+}
+
+function normalizeFileItem(item) {
+  return {
+    ...item,
+    category: normalizeFileCategory(item?.category)
+  }
+}
+
+async function loadFiles() {
+  const list = await api.get('/api/files')
+  fileList.value = list.map(normalizeFileItem)
+}
+
+const fileForProject = computed(() => {
+  if (!fileActiveProject.value) return []
+  let list = fileList.value.filter(f => f.project === fileActiveProject.value)
+  if (fileFilterCategory.value) {
+    list = list.filter(f => normalizeFileCategory(f.category) === fileFilterCategory.value)
+  }
+  return list
+})
+
+const fileCountByProject = computed(() => {
+  const map = {}
+  fileList.value.forEach(f => {
+    if (f.project) map[f.project] = (map[f.project] || 0) + 1
+  })
+  return map
+})
+
+function enterFileProject(projectName) {
+  fileActiveProject.value = projectName
+}
+
+function backToFileList() {
+  fileActiveProject.value = null
+  fileFilterCategory.value = ''
+  fileUploadModalVisible.value = false
+}
+
+// 打开上传文件弹窗
+function openFileUploadModal() {
+  fileCategory.value = '其他文件'
+  fileUploadModalVisible.value = true
+}
+
+// 关闭上传文件弹窗
+function closeFileUploadModal() {
+  fileUploadModalVisible.value = false
+}
+
+async function uploadFile() {
+  const input = fileInputRef.value
+  if (!input || !input.files.length) return
+  const file = input.files[0]
+  const formData = new FormData()
+  formData.append('project', fileActiveProject.value)
+  formData.append('category', fileCategory.value)
+  formData.append('file', file)
+  fileUploading.value = true
+  try {
+    const res = await fetch('/api/files', { method: 'POST', body: formData })
+    const item = normalizeFileItem(await res.json())
+    if (item.id) fileList.value.push(item)
+    fileUploadModalVisible.value = false
+  } finally {
+    fileUploading.value = false
+    input.value = ''
+    fileCategory.value = '其他文件'
+  }
+}
+
+function downloadFile(item) {
+  const a = document.createElement('a')
+  a.href = '/api/files/' + item.id + '/download'
+  a.download = item.filename
+  a.click()
+}
+
+async function removeFile(filteredIndex) {
+  const item = fileForProject.value[filteredIndex]
+  await api.del('/api/files/' + item.id)
+  const realIndex = fileList.value.findIndex(f => f.id === item.id)
+  if (realIndex !== -1) fileList.value.splice(realIndex, 1)
+}
+
+function getFileTypeLabel(mimetype) {
+  if (mimetype === 'application/pdf') return 'PDF'
+  if (mimetype === 'application/msword') return 'DOC'
+  if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'DOCX'
+  if (mimetype === 'application/vnd.ms-excel') return 'XLS'
+  if (mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'XLSX'
+  return '文件'
+}
+
+function getFileCategoryLabel(category) {
+  return normalizeFileCategory(category)
+}
+
+// --- 项目进度 ---
+const selectedProject = ref('')
+const projectProgress = ref('')
+const projects = ref([])
+
+// 可选项目列表：已在概况中登记但尚未填写进度的项目
+const availableProjects = computed(() => {
+  const usedNames = new Set(projects.value.map(p => p.name))
+  return overviewList.value.filter(ov => !usedNames.has(ov.name))
+})
+
+let chartInstance = null
+const chartRef = ref(null)
+
+async function loadProjects() {
+  projects.value = await api.get('/api/projects')
+}
+
+function ensureChart() {
+  if (!chartInstance && chartRef.value) {
+    chartInstance = echarts.init(chartRef.value)
+  }
+}
+
+function updateChart() {
+  ensureChart()
+  if (!chartInstance) return
+  const option = {
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: projects.value.map((p) => p.name),
+      axisLabel: { rotate: projects.value.length > 6 ? 30 : 0 }
+    },
+    yAxis: {
+      type: 'value',
+      name: '进度 (%)',
+      min: 0,
+      max: 100
+    },
+    series: [
+      {
+        name: '项目进度',
+        type: 'bar',
+        data: projects.value.map((p) => p.progress),
+        barMaxWidth: 50,
+        itemStyle: { color: '#3398DB' },
+        label: { show: true, position: 'top', formatter: '{c}%' }
+      }
+    ],
+    grid: { left: 60, right: 30, top: 40, bottom: 50 }
+  }
+  chartInstance.setOption(option, true)
+  chartInstance.resize()
+}
+
+async function addProject() {
+  const name = selectedProject.value
+  const progress = Number(projectProgress.value)
+  if (!name) return
+  if (isNaN(progress) || progress < 0 || progress > 100) return
+  const item = await api.post('/api/projects', { name, progress })
+  projects.value.push(item)
+  selectedProject.value = ''
+  projectProgress.value = ''
+  nextTick(() => updateChart())
+}
+
+async function removeProject(index) {
+  const item = projects.value[index]
+  await api.del('/api/projects/' + item.id)
+  projects.value.splice(index, 1)
+  nextTick(() => updateChart())
+}
+
+function handleResize() {
+  chartInstance && chartInstance.resize()
+  staffChartInstance && staffChartInstance.resize()
+  projectStaffChartInstance && projectStaffChartInstance.resize()
+  projectSupervisorChartInstance && projectSupervisorChartInstance.resize()
+  riskBarChartInstance && riskBarChartInstance.resize()
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'progress') {
+    nextTick(() => {
+      if (chartInstance) {
+        chartInstance.resize()
+      } else {
+        updateChart()
+      }
+    })
+  }
+  if (tab === 'staff') {
+    nextTick(() => {
+      if (staffActiveProject.value) {
+        if (staffChartInstance) {
+          staffChartInstance.resize()
+        } else {
+          updateStaffChart()
+        }
+      } else {
+        if (projectStaffChartInstance) {
+          projectStaffChartInstance.resize()
+        } else {
+          updateProjectStaffChart()
+        }
+      }
+    })
+  }
+  if (tab === 'risk') {
+    nextTick(() => {
+      if (!riskActiveProject.value) {
+        if (riskBarChartInstance) {
+          riskBarChartInstance.resize()
+        } else {
+          updateRiskBarChart()
+        }
+      }
+    })
+  }
+  if (tab === 'supervisor') {
+    nextTick(() => {
+      if (!supervisorActiveProject.value) {
+        if (projectSupervisorChartInstance) {
+          projectSupervisorChartInstance.resize()
+        } else {
+          updateProjectSupervisorChart()
+        }
+      }
+    })
+  }
+})
+
+// --- 账号管理模块 ---
+const accountList = ref([])
+const editAccountVisible = ref(false)
+const editAccountId = ref(null)
+const editAccountUsername = ref('')
+const editAccountPassword = ref('')
+const editAccountRole = ref('')
+const editAccountAssignedProject = ref('')
+const editAccountError = ref('')
+const createAccountVisible = ref(false)
+const createAccountUsername = ref('')
+const createAccountRealName = ref('')
+const createAccountPhone = ref('')
+const createAccountRole = ref('')
+const createAccountAssignedProject = ref('')
+const createAccountIsAdmin = ref(false)
+const createAccountError = ref('')
+const currentUser = ref(JSON.parse(localStorage.getItem('overwatch-auth-user') || 'null'))
+const isCurrentUserAdmin = computed(() => Boolean(currentUser.value?.isAdmin))
+
+// 当前用户被分配的项目（非管理员限制查看范围）
+const currentUserAssignedProject = computed(() => currentUser.value?.assignedProject || '')
+// 是否为受限用户：非管理员且被分配了项目
+const isRestrictedUser = computed(() => !isCurrentUserAdmin.value && Boolean(currentUserAssignedProject.value))
+
+// 受限用户只能看到被分配的项目，管理员看全部
+const visibleOverviewList = computed(() => {
+  if (!isRestrictedUser.value) return overviewList.value
+  return overviewList.value.filter(ov => ov.name === currentUserAssignedProject.value)
+})
+
+const visibleProjects = computed(() => {
+  if (!isRestrictedUser.value) return projects.value
+  return projects.value.filter(p => p.name === currentUserAssignedProject.value)
+})
+
+const visibleOverviewList = computed(() => {
+  if (!isRestrictedUser.value) return overviewList.value
+  return overviewList.value.filter(ov => ov.name === currentUserAssignedProject.value)
+})
+
+async function loadAccounts() {
+  try {
+    const list = await api.get('/api/auth/users')
+    accountList.value = list
+    // 同步当前用户的管理员状态（数据库可能已更新）
+    if (currentUser.value) {
+      const me = list.find(a => a.id === currentUser.value.id)
+      if (me) {
+        currentUser.value = { ...currentUser.value, isAdmin: Boolean(me.is_admin), role: me.role || '', assignedProject: me.assigned_project || '' }
+        localStorage.setItem('overwatch-auth-user', JSON.stringify(currentUser.value))
+      }
+    }
+  } catch {
+    accountList.value = []
+  }
+}
+
+function openEditAccount(account) {
+  editAccountId.value = account.id
+  editAccountUsername.value = account.username
+  editAccountPassword.value = ''
+  editAccountRole.value = account.role || ''
+  editAccountAssignedProject.value = account.assigned_project || ''
+  editAccountError.value = ''
+  editAccountVisible.value = true
+}
+
+function closeEditAccount() {
+  editAccountVisible.value = false
+}
+
+function openCreateAccount() {
+  createAccountUsername.value = ''
+  createAccountRealName.value = ''
+  createAccountPhone.value = ''
+  createAccountRole.value = ''
+  createAccountAssignedProject.value = ''
+  createAccountIsAdmin.value = false
+  createAccountError.value = ''
+  createAccountVisible.value = true
+}
+
+function closeCreateAccount() {
+  createAccountVisible.value = false
+}
+
+async function saveCreateAccount() {
+  createAccountError.value = ''
+  const username = createAccountUsername.value.trim()
+  const realName = createAccountRealName.value.trim()
+  const phone = createAccountPhone.value.trim()
+  if (!username || !realName || !phone) {
+    createAccountError.value = '账号名、姓名和联系方式为必填项'
+    return
+  }
+  try {
+    const result = await fetch('/api/auth/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-id': String(currentUser.value?.id) },
+      body: JSON.stringify({ username, realName, phone, role: createAccountRole.value.trim(), isAdmin: createAccountIsAdmin.value, assignedProject: createAccountAssignedProject.value.trim() })
+    }).then(r => r.json())
+    if (result.error) {
+      createAccountError.value = result.error
+      return
+    }
+    accountList.value.push(result)
+    createAccountVisible.value = false
+  } catch {
+    createAccountError.value = '创建失败，请稍后重试'
+  }
+}
+
+async function saveEditAccount() {
+  editAccountError.value = ''
+  const username = editAccountUsername.value.trim()
+  const password = editAccountPassword.value
+  if (!username) {
+    editAccountError.value = '账号名不能为空'
+    return
+  }
+  try {
+    const updated = await api.put('/api/auth/users/' + editAccountId.value, { username, password: password || undefined, role: editAccountRole.value.trim(), assignedProject: editAccountAssignedProject.value.trim() })
+    if (updated.error) {
+      editAccountError.value = updated.error
+      return
+    }
+    const idx = accountList.value.findIndex(a => a.id === editAccountId.value)
+    if (idx !== -1) accountList.value[idx] = updated
+    editAccountVisible.value = false
+  } catch {
+    editAccountError.value = '保存失败，请稍后重试'
+  }
+}
+
+async function deleteAccount(accountId) {
+  try {
+    await fetch('/api/auth/users/' + accountId, {
+      method: 'DELETE',
+      headers: { 'x-admin-id': String(currentUser.value?.id) }
+    })
+    accountList.value = accountList.value.filter(a => a.id !== accountId)
+  } catch {
+    // ignore
+  }
+}
+
+async function toggleAdminRole(account) {
+  try {
+    const updated = await fetch('/api/auth/users/' + account.id + '/role', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-id': String(currentUser.value?.id) },
+      body: JSON.stringify({ isAdmin: !account.is_admin })
+    }).then(r => r.json())
+    if (!updated.error) {
+      const idx = accountList.value.findIndex(a => a.id === account.id)
+      if (idx !== -1) accountList.value[idx] = updated
+    }
+  } catch {
+    // ignore
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([
+    loadOverview(),
+    loadProjects(),
+    loadStaff(),
+    loadSupervisors(),
+    loadRisks(),
+    loadQuality(),
+    loadHazards(),
+    loadPreshift(),
+    loadInspections(),
+    loadFiles(),
+    loadAccounts()
+  ])
+  nextTick(() => updateChart())
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+  if (staffChartInstance) {
+    staffChartInstance.dispose()
+    staffChartInstance = null
+  }
+  disposeProjectStaffChart()
+  disposeProjectSupervisorChart()
+  disposeRiskBarChart()
+})
+</script>
+
+<template>
+  <div class="page-layout">
+    <aside class="sidebar">
+      <ul class="sidebar-nav">
+        <li
+          :class="['sidebar-item', { active: activeTab === 'overview' }]"
+          @click="activeTab = 'overview'"
+        >项目概况</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'progress' }]"
+          @click="activeTab = 'progress'"
+        >项目进度</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'staff' }]"
+          @click="activeTab = 'staff'; backToStaffList()"
+        >人员信息</li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'supervisor' }]"
+          @click="activeTab = 'supervisor'; backToSupervisorList()"
+        >监理人员信息</li>
+        <li
+          :class="['sidebar-item', 'sidebar-parent', { active: riskSubTabs.includes(activeTab), expanded: riskMenuExpanded }]"
+        >
+          <div class="sidebar-parent-header" @click="toggleRiskMenu()">
+            <span>安全风险隐患</span>
+            <span :class="['arrow', { open: riskMenuExpanded }]">▸</span>
+          </div>
+          <ul class="sidebar-sub" v-show="riskMenuExpanded">
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'risk' }]"
+              @click="selectRiskSub('risk')"
+            >项目风险统计</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'riskHandle' }]"
+              @click="selectRiskSub('riskHandle')"
+            >隐患处理</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'hazard' }]"
+              @click="selectRiskSub('hazard')"
+            >危险源辨识清单</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'preshift' }]"
+              @click="selectRiskSub('preshift')"
+            >班前教育</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'inspection' }]"
+              @click="selectRiskSub('inspection')"
+            >设备巡检</li>
+            <li
+              :class="['sidebar-sub-item', { active: activeTab === 'quality' }]"
+              @click="selectRiskSub('quality')"
+            >质量管理</li>
+          </ul>
+        </li>
+        <li
+          :class="['sidebar-item', { active: activeTab === 'files' }]"
+          @click="activeTab = 'files'; backToFileList()"
+        >项目文件</li>
+        <li
+          v-if="isCurrentUserAdmin"
+          :class="['sidebar-item', { active: activeTab === 'accounts' }]"
+          @click="activeTab = 'accounts'"
+        >账号管理</li>
+      </ul>
+    </aside>
+
+    <div class="data-manage">
+      <h2 class="page-title">
+        {{ { overview: '项目概况', progress: '项目进度', staff: '人员信息', supervisor: '监理人员信息', risk: '项目风险统计', riskHandle: '隐患处理', hazard: '危险源辨识清单', preshift: '班前教育', inspection: '设备巡检', quality: '质量管理', files: '项目文件', accounts: '账号管理' }[activeTab] }}
+        <span v-if="activeTab === 'staff' && staffActiveProject" class="page-title-sub"> — {{ staffActiveProject }}</span>
+        <span v-if="activeTab === 'supervisor' && supervisorActiveProject" class="page-title-sub"> — {{ supervisorActiveProject }}</span>
+        <span v-if="activeTab === 'risk' && riskActiveProject" class="page-title-sub"> — {{ riskActiveProject }}</span>
+        <span v-if="activeTab === 'riskHandle' && riskHandleActiveProject" class="page-title-sub"> — {{ riskHandleActiveProject }}</span>
+        <span v-if="activeTab === 'quality' && qualityActiveProject" class="page-title-sub"> — {{ qualityActiveProject }}</span>
+        <span v-if="activeTab === 'hazard' && hazardActiveProject" class="page-title-sub"> — {{ hazardActiveProject }}</span>
+        <span v-if="activeTab === 'preshift' && preshiftActiveProject" class="page-title-sub"> — {{ preshiftActiveProject }}</span>
+        <span v-if="activeTab === 'inspection' && inspectionActiveProject" class="page-title-sub"> — {{ inspectionActiveProject }}</span>
+        <span v-if="activeTab === 'files' && fileActiveProject" class="page-title-sub"> — {{ fileActiveProject }}</span>
+      </h2>
+
+      <div v-show="activeTab === 'progress'">
+      <div v-if="visibleOverviewList.length" class="input-section">
+      <div class="input-group" v-if="isCurrentUserAdmin">
+        <label>选择项目</label>
+        <select v-model="selectedProject" class="project-select">
+          <option value="" disabled>请选择项目</option>
+          <option v-for="ov in availableProjects" :key="ov.name" :value="ov.name">
+            {{ ov.name }}
+          </option>
+        </select>
+      </div>
+      <div class="input-group" v-if="isCurrentUserAdmin">
+        <label>项目进度 (%)</label>
+        <input
+          v-model="projectProgress"
+          type="number"
+          min="0"
+          max="100"
+          placeholder="0 - 100"
+          @keyup.enter="addProject"
+        />
+      </div>
+      <button class="add-btn" v-if="isCurrentUserAdmin" @click="addProject">添加</button>
+    </div>
+    <div v-else class="empty-tip">请先在「项目概况」中添加项目</div>
+
+    <div class="content-section" v-show="visibleProjects.length">
+      <div class="chart-wrapper" v-if="isCurrentUserAdmin">
+        <div ref="chartRef" class="chart"></div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>项目名称</th>
+              <th>进度 (%)</th>
+              <th v-if="isCurrentUserAdmin">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, idx) in visibleProjects" :key="idx">
+              <td>{{ idx + 1 }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.progress }}</td>
+              <td v-if="isCurrentUserAdmin"><button class="del-btn" @click="removeProject(projects.indexOf(item))">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-show="visibleOverviewList.length && !visibleProjects.length" class="empty-tip">暂无进度数据，请选择项目并填写进度</div>
+      </div>
+
+      <div v-show="activeTab === 'overview'">
+        <div class="input-section" v-if="isCurrentUserAdmin">
+          <div class="input-group">
+            <label>项目名称</label>
+            <input v-model="ovName" placeholder="请输入项目名称" @keyup.enter="addOverview" />
+          </div>
+          <div class="input-group">
+            <label>项目承建方</label>
+            <input v-model="ovContractor" placeholder="请输入承建方" @keyup.enter="addOverview" />
+          </div>
+          <div class="input-group">
+            <label>项目位置</label>
+            <input v-model="ovLocation" placeholder="请输入项目位置（选填）" @keyup.enter="addOverview" />
+          </div>
+          <button class="add-btn" @click="addOverview">添加</button>
+        </div>
+
+        <div class="table-wrapper" v-show="visibleOverviewList.length">
+          <table>
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>项目名称</th>
+                <th>项目承建方</th>
+                <th>项目位置</th>
+                <th v-if="isCurrentUserAdmin">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in visibleOverviewList" :key="idx">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ item.name }}</td>
+                <td>{{ item.contractor }}</td>
+                <td>{{ item.location }}</td>
+                <td v-if="isCurrentUserAdmin">
+                  <button class="edit-btn" @click="openEditOverview(overviewList.indexOf(item))">编辑</button>
+                  <button class="del-btn" @click="removeOverview(overviewList.indexOf(item))">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-show="!visibleOverviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
+
+        <!-- 编辑项目浮窗 -->
+        <div v-if="editOverviewVisible" class="modal-overlay" @click.self="closeEditOverview">
+          <div class="modal-content">
+            <h3 class="modal-title">编辑项目信息</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>项目名称</label>
+                <input v-model="editOvName" placeholder="请输入项目名称" />
+              </div>
+              <div class="modal-field">
+                <label>项目承建方</label>
+                <input v-model="editOvContractor" placeholder="请输入承建方" />
+              </div>
+              <div class="modal-field">
+                <label>项目位置</label>
+                <input v-model="editOvLocation" placeholder="请输入项目位置（选填）" />
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeEditOverview">取消</button>
+              <button class="add-btn" @click="saveEditOverview">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'staff'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!staffActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>人员数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterStaffProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ staffCountByProject[ov.name] || 0 }} 人</td>
+                  <td><button class="view-btn" @click="enterStaffProject(ov.name)">查看人员</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="visibleOverviewList.length && staffList.length" class="content-section" style="margin-top: 24px;">
+            <div class="chart-wrapper">
+              <div ref="projectStaffChartRef" class="chart"></div>
+            </div>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：项目人员详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToStaffList">← 返回项目列表</button>
+
+          <div class="input-section input-section-wrap">
+            <div class="input-group">
+              <label>姓名</label>
+              <input v-model="staffName" placeholder="请输入姓名" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>岗位</label>
+              <input v-model="staffPosition" placeholder="请输入岗位" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>联系方式</label>
+              <input v-model="staffPhone" placeholder="请输入联系方式" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>身份证号</label>
+              <input v-model="staffIdCard" placeholder="请输入身份证号" @keyup.enter="addStaff" />
+            </div>
+            <div class="input-group">
+              <label>持证情况</label>
+              <input v-model="staffCert" placeholder="请输入持证情况" @keyup.enter="addStaff" />
+            </div>
+            <button class="add-btn" @click="addStaff">添加</button>
+          </div>
+
+          <div class="content-section" v-show="staffForProject.length">
+            <div class="chart-wrapper">
+              <div ref="staffChartRef" class="chart"></div>
+            </div>
+          </div>
+
+          <div class="table-wrapper" v-show="staffForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>姓名</th>
+                  <th>岗位</th>
+                  <th>联系方式</th>
+                  <th>身份证号</th>
+                  <th>持证情况</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in staffForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.position }}</td>
+                  <td>{{ item.phone }}</td>
+                  <td>{{ item.idCard }}</td>
+                  <td>{{ item.cert }}</td>
+                  <td><button class="del-btn" @click="removeStaff(idx)">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!staffForProject.length" class="empty-tip">该项目暂无人员，请添加</div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'supervisor'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!supervisorActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>监理人员数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterSupervisorProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ supervisorCountByProject[ov.name] || 0 }} 人</td>
+                  <td><button class="view-btn" @click="enterSupervisorProject(ov.name)">查看监理人员</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="visibleOverviewList.length && supervisorList.length" class="content-section" style="margin-top: 24px;">
+            <div class="chart-wrapper">
+              <div ref="projectSupervisorChartRef" class="chart"></div>
+            </div>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：监理人员详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToSupervisorList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <div class="input-group">
+              <label>姓名</label>
+              <input v-model="supervisorName" placeholder="请输入姓名" @keyup.enter="addSupervisor" />
+            </div>
+            <div class="input-group">
+              <label>联系方式</label>
+              <input v-model="supervisorPhone" placeholder="请输入联系方式" @keyup.enter="addSupervisor" />
+            </div>
+            <button class="add-btn" @click="addSupervisor">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="supervisorForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>姓名</th>
+                  <th>联系方式</th>
+                  <th>考勤次数</th>
+                  <th>考勤</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in supervisorForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.phone }}</td>
+                  <td>{{ item.attendance || 0 }}</td>
+                  <td>
+                    <button
+                      v-if="!hasCheckedInToday(item)"
+                      class="checkin-btn"
+                      @click="checkIn(idx)"
+                    >签到</button>
+                    <span v-else class="checkin-done">今日已签到</span>
+                  </td>
+                  <td><button class="del-btn" @click="removeSupervisor(idx)">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!supervisorForProject.length" class="empty-tip">该项目暂无监理人员，请添加</div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'risk'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!riskActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>隐患数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterRiskProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterRiskProject(ov.name)">安全管理</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="visibleOverviewList.length && visibleRiskList.length" class="content-section" style="margin-top: 24px;">
+            <div class="chart-wrapper">
+              <div ref="riskBarChartRef" class="chart"></div>
+            </div>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：安全风险隐患详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToRiskList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <div class="input-group">
+              <label>筛选风险等级</label>
+              <select v-model="riskFilterLevel" class="project-select">
+                <option value="">全部</option>
+                <option value="低">低</option>
+                <option value="中">中</option>
+                <option value="高">高</option>
+                <option value="重大">重大</option>
+              </select>
+            </div>
+            <button class="add-btn" @click="openRiskModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="riskForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>风险隐患描述</th>
+                  <th>发现时间</th>
+                  <th>发现地点</th>
+                  <th>风险等级</th>
+                  <th>隐患照片</th>
+                  <th>整改措施</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in riskForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.desc }}</td>
+                  <td>{{ item.discoverTime || item.date || '—' }}</td>
+                  <td>{{ item.discoverPlace || '—' }}</td>
+                  <td>
+                    <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>
+                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="previewPhoto = item.photo" />
+                    <span v-else>—</span>
+                  </td>
+                  <td>{{ item.measure || '—' }}</td>
+                  <td>
+                    <button class="edit-btn" @click="openEditRisk(idx)">编辑</button>
+                    <button class="del-btn" @click="removeRisk(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!riskForProject.length" class="empty-tip">该项目暂无安全风险隐患记录</div>
+
+          <!-- 添加风险隐患浮窗 -->
+          <div v-if="riskModalVisible" class="modal-overlay" @click.self="closeRiskModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加安全风险隐患</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>风险隐患描述</label>
+                  <textarea v-model="riskDesc" placeholder="请输入风险隐患描述" rows="3"></textarea>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>发现时间</label>
+                    <input type="date" v-model="riskDiscoverTime" />
+                  </div>
+                  <div class="modal-field">
+                    <label>发现地点</label>
+                    <input v-model="riskDiscoverPlace" placeholder="请输入发现地点" />
+                  </div>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>风险等级</label>
+                    <select v-model="riskLevel" class="project-select">
+                      <option value="" disabled>请选择风险等级</option>
+                      <option value="低">低</option>
+                      <option value="中">中</option>
+                      <option value="高">高</option>
+                      <option value="重大">重大</option>
+                    </select>
+                  </div>
+                  <div class="modal-field">
+                    <label>隐患照片</label>
+                    <input type="file" accept="image/*" @change="handleRiskPhoto" />
+                  </div>
+                </div>
+                <div class="modal-field" v-if="riskPhoto">
+                  <img :src="riskPhoto" class="risk-photo-preview" />
+                </div>
+                <div class="modal-field">
+                  <label>整改措施</label>
+                  <textarea v-model="riskMeasure" placeholder="请输入整改措施" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeRiskModal">取消</button>
+                <button class="add-btn" @click="addRisk">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 编辑风险隐患浮窗 -->
+          <div v-if="editRiskModalVisible" class="modal-overlay" @click.self="closeEditRisk">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑安全风险隐患</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>风险隐患描述</label>
+                  <textarea v-model="riskDesc" placeholder="请输入风险隐患描述" rows="3"></textarea>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>发现时间</label>
+                    <input type="date" v-model="riskDiscoverTime" />
+                  </div>
+                  <div class="modal-field">
+                    <label>发现地点</label>
+                    <input v-model="riskDiscoverPlace" placeholder="请输入发现地点" />
+                  </div>
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>风险等级</label>
+                    <select v-model="riskLevel" class="project-select">
+                      <option value="" disabled>请选择风险等级</option>
+                      <option value="低">低</option>
+                      <option value="中">中</option>
+                      <option value="高">高</option>
+                      <option value="重大">重大</option>
+                    </select>
+                  </div>
+                  <div class="modal-field">
+                    <label>隐患照片</label>
+                    <input type="file" accept="image/*" @change="handleRiskPhoto" />
+                  </div>
+                </div>
+                <div class="modal-field" v-if="riskPhoto">
+                  <img :src="riskPhoto" class="risk-photo-preview" />
+                </div>
+                <div class="modal-field">
+                  <label>整改措施</label>
+                  <textarea v-model="riskMeasure" placeholder="请输入整改措施" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditRisk">取消</button>
+                <button class="add-btn" @click="saveEditRisk">保存</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 照片预览浮层 -->
+          <div v-if="previewPhoto" class="modal-overlay" @click="previewPhoto = ''">
+            <img :src="previewPhoto" class="risk-photo-full" />
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'riskHandle'">
+        <div v-if="!riskHandleActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>风险总数</th>
+                  <th>已处理</th>
+                  <th>未处理</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterRiskHandleProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
+                  <td>{{ processedRiskCountByProject[ov.name] || 0 }} 条</td>
+                  <td>{{ (riskCountByProject[ov.name] || 0) - (processedRiskCountByProject[ov.name] || 0) }} 条</td>
+                  <td><button class="view-btn" @click="enterRiskHandleProject(ov.name)">进入处理</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <div v-else>
+          <button class="back-btn" @click="backToRiskHandleList">← 返回项目列表</button>
+
+          <div class="table-wrapper" v-show="riskHandleForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>风险隐患描述</th>
+                  <th>发现时间</th>
+                  <th>发现地点</th>
+                  <th>风险等级</th>
+                  <th>整改措施</th>
+                  <th>处理状态</th>
+                  <th>流程进度</th>
+                  <th>流程操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in riskHandleForProject" :key="item.id">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.desc }}</td>
+                  <td>{{ item.discoverTime || item.date || '—' }}</td>
+                  <td>{{ item.discoverPlace || '—' }}</td>
+                  <td>
+                    <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>{{ item.measure || '—' }}</td>
+                  <td>
+                    <span :class="['process-tag', item.processed ? 'process-done' : 'process-pending']">{{ getRiskProcessStatusLabel(item) }}</span>
+                  </td>
+                  <td>
+                    <div class="workflow-steps">
+                      <span :class="['wf-step', item.workflowStep >= 1 ? 'wf-done' : 'wf-pending']">①发起</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 2 ? 'wf-done' : 'wf-pending']">②确认</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 3 ? 'wf-done' : 'wf-pending']">③复核</span>
+                      <span class="wf-arrow">→</span>
+                      <span :class="['wf-step', item.workflowStep >= 4 ? 'wf-done' : 'wf-pending']">④终确</span>
+                    </div>
+                  </td>
+                  <td>
+                    <!-- Step 1: 监理工程师 发起处理 -->
+                    <button
+                      v-if="currentUser?.role === '监理工程师' && item.workflowStep === 0"
+                      class="wf-btn wf-btn-start"
+                      @click="advanceWorkflow(idx, 1)"
+                    >发起处理</button>
+                    <!-- Step 2: 施工班组长 确认处理 -->
+                    <button
+                      v-else-if="currentUser?.role === '施工班组长' && item.workflowStep === 1"
+                      class="wf-btn wf-btn-confirm"
+                      @click="advanceWorkflow(idx, 2)"
+                    >确认处理</button>
+                    <!-- Step 3: 项目经理 复核处理 -->
+                    <button
+                      v-else-if="currentUser?.role === '项目经理' && item.workflowStep === 2"
+                      class="wf-btn wf-btn-review"
+                      @click="advanceWorkflow(idx, 3)"
+                    >复核处理</button>
+                    <!-- Step 4: 监理工程师 最终确认 -->
+                    <button
+                      v-else-if="currentUser?.role === '监理工程师' && item.workflowStep === 3"
+                      class="wf-btn wf-btn-final"
+                      @click="advanceWorkflow(idx, 4)"
+                    >最终确认</button>
+                    <span v-else-if="item.workflowStep === 4" class="wf-complete">流程已完成</span>
+                    <span v-else class="wf-waiting">等待上一步完成</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!riskHandleForProject.length" class="empty-tip">该项目暂无风险隐患记录</div>
+        </div>
+      </div>
+
+      <!-- 危险源辨识清单模块 -->
+      <div v-show="activeTab === 'hazard'">
+        <!-- 一级：项目列表视图 -->
+        <div v-if="!hazardActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>危险源数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterHazardProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ hazardCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterHazardProject(ov.name)">查看辨识清单</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：危险源辨识清单详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToHazardList">← 返回项目列表</button>
+
+          <!-- 筛选与添加操作栏 -->
+          <div class="input-section">
+            <div class="input-group">
+              <label>筛选风险等级</label>
+              <select v-model="hazardFilterLevel" class="project-select">
+                <option value="">全部</option>
+                <option value="低">低</option>
+                <option value="中">中</option>
+                <option value="高">高</option>
+                <option value="重大">重大</option>
+              </select>
+            </div>
+            <button class="add-btn" @click="openHazardModal">添加</button>
+          </div>
+
+          <!-- 危险源辨识清单数据表格 -->
+          <div class="table-wrapper" v-show="hazardForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>危险源名称</th>
+                  <th>存在位置</th>
+                  <th>危险有害因素类别</th>
+                  <th>可能导致的事故类型</th>
+                  <th>风险等级</th>
+                  <th>控制措施</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in hazardForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.location || '—' }}</td>
+                  <td>{{ item.hazardType }}</td>
+                  <td>{{ item.possibleAccident || '—' }}</td>
+                  <td>
+                    <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>{{ item.controlMeasure || '—' }}</td>
+                  <td>
+                    <button class="edit-btn" @click="openEditHazard(idx)">编辑</button>
+                    <button class="del-btn" @click="removeHazard(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!hazardForProject.length" class="empty-tip">该项目暂无危险源辨识记录</div>
+
+          <!-- 添加危险源弹窗 -->
+          <div v-if="hazardModalVisible" class="modal-overlay" @click.self="closeHazardModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加危险源辨识</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>危险源名称</label>
+                  <input v-model="hazardName" placeholder="请输入危险源名称" />
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>存在位置</label>
+                    <input v-model="hazardLocation" placeholder="请输入存在位置" />
+                  </div>
+                  <div class="modal-field">
+                    <label>风险等级</label>
+                    <select v-model="hazardLevel" class="project-select">
+                      <option value="" disabled>请选择风险等级</option>
+                      <option value="低">低</option>
+                      <option value="中">中</option>
+                      <option value="高">高</option>
+                      <option value="重大">重大</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="modal-field">
+                  <label>危险有害因素类别</label>
+                  <input v-model="hazardType" placeholder="请输入危险有害因素类别" />
+                </div>
+                <div class="modal-field">
+                  <label>可能导致的事故类型</label>
+                  <input v-model="hazardPossibleAccident" placeholder="请输入可能导致的事故类型" />
+                </div>
+                <div class="modal-field">
+                  <label>控制措施</label>
+                  <textarea v-model="hazardControlMeasure" placeholder="请输入控制措施" rows="3"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeHazardModal">取消</button>
+                <button class="add-btn" @click="addHazard">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 编辑危险源弹窗 -->
+          <div v-if="editHazardModalVisible" class="modal-overlay" @click.self="closeEditHazard">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑危险源辨识</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>危险源名称</label>
+                  <input v-model="hazardName" placeholder="请输入危险源名称" />
+                </div>
+                <div class="modal-row">
+                  <div class="modal-field">
+                    <label>存在位置</label>
+                    <input v-model="hazardLocation" placeholder="请输入存在位置" />
+                  </div>
+                  <div class="modal-field">
+                    <label>风险等级</label>
+                    <select v-model="hazardLevel" class="project-select">
+                      <option value="" disabled>请选择风险等级</option>
+                      <option value="低">低</option>
+                      <option value="中">中</option>
+                      <option value="高">高</option>
+                      <option value="重大">重大</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="modal-field">
+                  <label>危险有害因素类别</label>
+                  <input v-model="hazardType" placeholder="请输入危险有害因素类别" />
+                </div>
+                <div class="modal-field">
+                  <label>可能导致的事故类型</label>
+                  <input v-model="hazardPossibleAccident" placeholder="请输入可能导致的事故类型" />
+                </div>
+                <div class="modal-field">
+                  <label>控制措施</label>
+                  <textarea v-model="hazardControlMeasure" placeholder="请输入控制措施" rows="3"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditHazard">取消</button>
+                <button class="add-btn" @click="saveEditHazard">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'preshift'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!preshiftActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>例会记录数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterPreshiftProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ preshiftCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterPreshiftProject(ov.name)">查看例会记录</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：站例会记录详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToPreshiftList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openPreshiftModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="preshiftForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>日期</th>
+                  <th>会议主持人</th>
+                  <th>例会召开情况</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in preshiftForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.date }}</td>
+                  <td>{{ item.host }}</td>
+                  <td>{{ item.status }}</td>
+                  <td>
+                    <button class="edit-btn" @click="openEditPreshift(idx)">编辑</button>
+                    <button class="del-btn" @click="removePreshift(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!preshiftForProject.length" class="empty-tip">该项目暂无站例会记录</div>
+
+          <!-- 添加站例会弹窗 -->
+          <div v-if="preshiftModalVisible" class="modal-overlay" @click.self="closePreshiftModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加站例会记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>日期</label>
+                  <input type="date" v-model="preshiftDate" />
+                </div>
+                <div class="modal-field">
+                  <label>会议主持人</label>
+                  <input v-model="preshiftHost" placeholder="请输入会议主持人" />
+                </div>
+                <div class="modal-field">
+                  <label>例会召开情况</label>
+                  <textarea v-model="preshiftStatus" placeholder="请输入例会召开情况" rows="3"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closePreshiftModal">取消</button>
+                <button class="add-btn" @click="addPreshift">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 编辑站例会弹窗 -->
+          <div v-if="editPreshiftModalVisible" class="modal-overlay" @click.self="closeEditPreshift">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑站例会记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>日期</label>
+                  <input type="date" v-model="preshiftDate" />
+                </div>
+                <div class="modal-field">
+                  <label>会议主持人</label>
+                  <input v-model="preshiftHost" placeholder="请输入会议主持人" />
+                </div>
+                <div class="modal-field">
+                  <label>例会召开情况</label>
+                  <textarea v-model="preshiftStatus" placeholder="请输入例会召开情况" rows="3"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditPreshift">取消</button>
+                <button class="add-btn" @click="saveEditPreshift">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'inspection'">
+        <div v-if="!inspectionActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>巡检记录数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterInspectionProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ inspectionCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterInspectionProject(ov.name)">设备巡检</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <div v-else>
+          <button class="back-btn" @click="backToInspectionList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openInspectionModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="inspectionForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>设备名</th>
+                  <th>日常检查内容</th>
+                  <th>已发现风险</th>
+                  <th>保修情况</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in inspectionForProject" :key="item.id">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.deviceName }}</td>
+                  <td>{{ item.checkContent || '—' }}</td>
+                  <td>{{ item.foundRisk || '—' }}</td>
+                  <td>{{ item.warrantyStatus || '—' }}</td>
+                  <td>
+                    <button class="edit-btn" @click="openEditInspection(idx)">编辑</button>
+                    <button class="del-btn" @click="removeInspection(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!inspectionForProject.length" class="empty-tip">该项目暂无设备巡检记录</div>
+
+          <div v-if="inspectionModalVisible" class="modal-overlay" @click.self="closeInspectionModal">
+            <div class="modal-content">
+              <h3 class="modal-title">添加设备巡检记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>设备名</label>
+                  <input v-model="inspectionDeviceName" placeholder="请输入设备名" />
+                </div>
+                <div class="modal-field">
+                  <label>日常检查内容</label>
+                  <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>已发现风险</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>保修情况</label>
+                  <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeInspectionModal">取消</button>
+                <button class="add-btn" @click="addInspection">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="editInspectionModalVisible" class="modal-overlay" @click.self="closeEditInspection">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑设备巡检记录</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>设备名</label>
+                  <input v-model="inspectionDeviceName" placeholder="请输入设备名" />
+                </div>
+                <div class="modal-field">
+                  <label>日常检查内容</label>
+                  <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>已发现风险</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>保修情况</label>
+                  <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditInspection">取消</button>
+                <button class="add-btn" @click="saveEditInspection">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'quality'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!qualityActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>记录数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterQualityProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ qualityCountByProject[ov.name] || 0 }} 条</td>
+                  <td><button class="view-btn" @click="enterQualityProject(ov.name)">质量管理详情</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：质量管理详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToQualityList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openQualityModal">添加</button>
+          </div>
+
+          <div class="table-wrapper" v-show="qualityForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>填报日期</th>
+                  <th>钢筋</th>
+                  <th>基础布线</th>
+                  <th>设备安装</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in qualityForProject" :key="idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.date }}</td>
+                  <td>
+                    <div class="quality-cell">
+                      <img v-if="item.rebar && item.rebar.photo" :src="item.rebar.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.rebar.photo" />
+                      <span>{{ (item.rebar && item.rebar.content) || '—' }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="quality-cell">
+                      <img v-if="item.wiring && item.wiring.photo" :src="item.wiring.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.wiring.photo" />
+                      <span>{{ (item.wiring && item.wiring.content) || '—' }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="quality-cell">
+                      <img v-if="item.equipment && item.equipment.photo" :src="item.equipment.photo" class="risk-photo-thumb" @click="qualityPreviewPhoto = item.equipment.photo" />
+                      <span>{{ (item.equipment && item.equipment.content) || '—' }}</span>
+                    </div>
+                  </td>
+                  <td class="quality-actions">
+                    <button class="edit-btn" @click="openEditQuality(idx)">编辑</button>
+                    <button class="del-btn" @click="removeQuality(idx)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!qualityForProject.length" class="empty-tip">该项目暂无质量管理记录</div>
+
+          <!-- 添加质量管理浮窗 -->
+          <div v-if="qualityModalVisible" class="modal-overlay" @click.self="closeQualityModal">
+            <div class="modal-content">
+              <h3 class="modal-title">质量管理填报</h3>
+              <div class="modal-form">
+                <div class="quality-section">
+                  <div class="quality-section-label">钢筋</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('rebar', $event)" />
+                  </div>
+                  <img v-if="qualityRebarPhoto" :src="qualityRebarPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityRebarContent" placeholder="请输入钢筋相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">基础布线</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('wiring', $event)" />
+                  </div>
+                  <img v-if="qualityWiringPhoto" :src="qualityWiringPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityWiringContent" placeholder="请输入基础布线相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">设备安装</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('equipment', $event)" />
+                  </div>
+                  <img v-if="qualityEquipmentPhoto" :src="qualityEquipmentPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityEquipmentContent" placeholder="请输入设备安装相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeQualityModal">取消</button>
+                <button class="add-btn" @click="addQuality">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 编辑质量管理浮窗 -->
+          <div v-if="editQualityModalVisible" class="modal-overlay" @click.self="closeEditQuality">
+            <div class="modal-content">
+              <h3 class="modal-title">编辑质量管理填报</h3>
+              <div class="modal-form">
+                <div class="quality-section">
+                  <div class="quality-section-label">钢筋</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('rebar', $event)" />
+                  </div>
+                  <img v-if="qualityRebarPhoto" :src="qualityRebarPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityRebarContent" placeholder="请输入钢筋相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">基础布线</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('wiring', $event)" />
+                  </div>
+                  <img v-if="qualityWiringPhoto" :src="qualityWiringPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityWiringContent" placeholder="请输入基础布线相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+                <div class="quality-section">
+                  <div class="quality-section-label">设备安装</div>
+                  <div class="modal-field">
+                    <label>图片上传</label>
+                    <input type="file" accept="image/*" @change="handleQualityPhoto('equipment', $event)" />
+                  </div>
+                  <img v-if="qualityEquipmentPhoto" :src="qualityEquipmentPhoto" class="risk-photo-preview" />
+                  <div class="modal-field">
+                    <label>内容填写</label>
+                    <textarea v-model="qualityEquipmentContent" placeholder="请输入设备安装相关内容" rows="2"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeEditQuality">取消</button>
+                <button class="add-btn" @click="saveEditQuality">保存</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 照片预览浮层 -->
+          <div v-if="qualityPreviewPhoto" class="modal-overlay" @click="qualityPreviewPhoto = ''">
+            <img :src="qualityPreviewPhoto" class="risk-photo-full" />
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'files'">
+        <!-- 一级：项目列表 -->
+        <div v-if="!fileActiveProject">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>项目名称</th>
+                  <th>文件数量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
+                  <td>{{ idx + 1 }}</td>
+                  <td class="project-link" @click="enterFileProject(ov.name)">{{ ov.name }}</td>
+                  <td>{{ fileCountByProject[ov.name] || 0 }} 个</td>
+                  <td><button class="view-btn" @click="enterFileProject(ov.name)">管理文件</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+        </div>
+
+        <!-- 二级：项目文件详情 -->
+        <div v-else>
+          <button class="back-btn" @click="backToFileList">← 返回项目列表</button>
+
+          <div class="input-section">
+            <button class="add-btn" @click="openFileUploadModal">上传文件</button>
+            <div class="input-group" style="margin-left: auto;">
+              <label>筛选文件分类</label>
+              <select v-model="fileFilterCategory" class="project-select">
+                <option value="">全部</option>
+                <option value="监理日报">监理日报</option>
+                <option value="监理周报">监理周报</option>
+                <option value="监理月报">监理月报</option>
+                <option value="其他文件">其他文件</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrapper" v-show="fileForProject.length">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>文件名</th>
+                  <th>文件类型</th>
+                  <th>文件分类</th>
+                  <th>上传时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in fileForProject" :key="item.id">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ item.filename }}</td>
+                  <td><span class="file-type-tag">{{ getFileTypeLabel(item.mimetype) }}</span></td>
+                  <td><span class="file-category-tag">{{ getFileCategoryLabel(item.category) }}</span></td>
+                  <td>{{ item.uploadTime }}</td>
+                  <td>
+                    <button class="view-btn" @click="previewFile(item)">预览</button>
+                    <button class="view-btn" @click="downloadFile(item)" style="margin-left:6px">下载</button>
+                    <button class="del-btn" @click="removeFile(idx)" style="margin-left:6px">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-show="!fileForProject.length" class="empty-tip">{{ fileFilterCategory ? '该分类下暂无文件' : '该项目暂无文件，请上传' }}</div>
+
+          <!-- 上传文件弹窗 -->
+          <div v-if="fileUploadModalVisible" class="modal-overlay" @click.self="closeFileUploadModal">
+            <div class="modal-content">
+              <h3 class="modal-title">上传文件</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>文件分类</label>
+                  <select v-model="fileCategory" class="project-select">
+                    <option value="监理日报">监理日报</option>
+                    <option value="监理周报">监理周报</option>
+                    <option value="监理月报">监理月报</option>
+                    <option value="其他文件">其他文件</option>
+                  </select>
+                </div>
+                <div class="modal-field">
+                  <label>选择文件（doc/docx/xls/xlsx/pdf）</label>
+                  <input ref="fileInputRef" type="file" accept=".doc,.docx,.xls,.xlsx,.pdf" />
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="closeFileUploadModal">取消</button>
+                <button class="add-btn" :disabled="fileUploading" @click="uploadFile">{{ fileUploading ? '上传中...' : '确认上传' }}</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 文件预览弹窗 -->
+          <div v-if="filePreviewVisible" class="modal-overlay file-preview-overlay" @click.self="closeFilePreview">
+            <div class="file-preview-modal">
+              <div class="file-preview-header">
+                <span class="file-preview-title">{{ filePreviewTitle }}</span>
+                <button class="file-preview-close" @click="closeFilePreview">✕</button>
+              </div>
+              <div class="file-preview-body">
+                <div v-if="filePreviewLoading" class="file-preview-loading">加载中...</div>
+                <div v-else-if="filePreviewType === 'pdf'" class="file-preview-pdf">
+                  <iframe :src="filePreviewUrl" frameborder="0"></iframe>
+                </div>
+                <div v-else-if="filePreviewType === 'docx' || filePreviewType === 'excel'" class="file-preview-html" v-html="filePreviewHtml"></div>
+                <div v-else-if="filePreviewType === 'unsupported'" class="file-preview-unsupported">{{ filePreviewError }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 账号管理 -->
+      <div v-show="activeTab === 'accounts'">
+        <div class="input-section" v-if="isCurrentUserAdmin">
+          <button class="add-btn" @click="openCreateAccount">添加账户</button>
+        </div>
+        <div class="table-wrapper" v-show="accountList.length">
+          <table>
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>账号名</th>
+                <th>姓名</th>
+                <th>手机号</th>
+                <th>注册时间</th>
+                <th>角色</th>
+                <th>分配项目</th>
+                <th>权限</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(account, idx) in accountList" :key="account.id">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ account.username }}</td>
+                <td>{{ account.real_name }}</td>
+                <td>{{ account.phone }}</td>
+                <td>{{ account.created_at }}</td>
+                <td>{{ account.role || '—' }}</td>
+                <td>{{ account.assigned_project || '—' }}</td>
+                <td>
+                  <span :class="account.is_admin ? 'role-tag role-admin' : 'role-tag role-normal'">
+                    {{ account.is_admin ? '管理员' : '普通用户' }}
+                  </span>
+                </td>
+                <td>
+                  <button class="edit-btn" @click="openEditAccount(account)">编辑</button>
+                  <button v-if="isCurrentUserAdmin" class="role-btn" @click="toggleAdminRole(account)">
+                    {{ account.is_admin ? '撤销管理员' : '设为管理员' }}
+                  </button>
+                  <button v-if="isCurrentUserAdmin && account.id !== currentUser.id" class="del-btn" @click="deleteAccount(account.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-show="!accountList.length" class="empty-tip">暂无注册账号</div>
+
+        <!-- 编辑账号弹窗 -->
+        <div v-if="editAccountVisible" class="modal-overlay" @click.self="closeEditAccount">
+          <div class="modal-content">
+            <h3 class="modal-title">编辑账号</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>账号名</label>
+                <input v-model="editAccountUsername" placeholder="请输入账号名" />
+              </div>
+              <div class="modal-field">
+                <label>新密码（不填则不修改）</label>
+                <input v-model="editAccountPassword" type="password" placeholder="至少6位" />
+              </div>
+              <div class="modal-field">
+                <label>角色</label>
+                <select v-model="editAccountRole" class="project-select">
+                  <option value="" disabled>请选择角色</option>
+                  <option value="监理工程师">监理工程师</option>
+                  <option value="施工班组长">施工班组长</option>
+                  <option value="项目经理">项目经理</option>
+                </select>
+              </div>
+              <div class="modal-field" v-if="isCurrentUserAdmin">
+                <label>分配项目（非管理员可见内容限制）</label>
+                <select v-model="editAccountAssignedProject" class="project-select">
+                  <option value="">不限制（可查看所有）</option>
+                  <option v-for="ov in overviewList" :key="ov.name" :value="ov.name">{{ ov.name }}</option>
+                </select>
+              </div>
+              <div v-if="editAccountError" class="modal-error">{{ editAccountError }}</div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeEditAccount">取消</button>
+              <button class="add-btn" @click="saveEditAccount">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加账户弹窗 -->
+        <div v-if="createAccountVisible" class="modal-overlay" @click.self="closeCreateAccount">
+          <div class="modal-content">
+            <h3 class="modal-title">添加账户</h3>
+            <div class="modal-form">
+              <div class="modal-field">
+                <label>账号名</label>
+                <input v-model="createAccountUsername" placeholder="请输入账号名" />
+              </div>
+              <div class="modal-field">
+                <label>姓名</label>
+                <input v-model="createAccountRealName" placeholder="请输入姓名" />
+              </div>
+              <div class="modal-field">
+                <label>联系方式（手机号）</label>
+                <input v-model="createAccountPhone" placeholder="请输入11位手机号" />
+              </div>
+              <div class="modal-field">
+                <label>角色</label>
+                <select v-model="createAccountRole" class="project-select">
+                  <option value="" disabled>请选择角色</option>
+                  <option value="监理工程师">监理工程师</option>
+                  <option value="施工班组长">施工班组长</option>
+                  <option value="项目经理">项目经理</option>
+                </select>
+              </div>
+              <div class="modal-field">
+                <label>分配项目（非管理员可见内容限制）</label>
+                <select v-model="createAccountAssignedProject" class="project-select">
+                  <option value="">不限制（可查看所有）</option>
+                  <option v-for="ov in overviewList" :key="ov.name" :value="ov.name">{{ ov.name }}</option>
+                </select>
+              </div>
+              <div class="modal-field" v-if="isCurrentUserAdmin">
+                <label style="display:flex;align-items:center;gap:8px;">
+                  <input type="checkbox" v-model="createAccountIsAdmin" style="width:auto;" />
+                  设为管理员
+                </label>
+              </div>
+              <div class="modal-tip">初始密码为手机号后6位</div>
+              <div v-if="createAccountError" class="modal-error">{{ createAccountError }}</div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-cancel-btn" @click="closeCreateAccount">取消</button>
+              <button class="add-btn" @click="saveCreateAccount">确认添加</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page-layout {
+  display: flex;
+  height: 100vh;
+  padding-top: 56px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sidebar {
+  width: 180px;
+  min-width: 180px;
+  background-color: #1e3a5f;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-item {
+  padding: 16px 24px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-item.active {
+  background-color: rgba(51, 153, 255, 0.3);
+  border-left-color: #3398db;
+  font-weight: 600;
+}
+
+.sidebar-parent {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.sidebar-parent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  cursor: pointer;
+}
+
+.arrow {
+  font-size: 12px;
+  transition: transform 0.25s;
+}
+
+.arrow.open {
+  transform: rotate(90deg);
+}
+
+.sidebar-sub {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+.sidebar-sub-item {
+  padding: 12px 24px 12px 40px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-left: 3px solid transparent;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sidebar-sub-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-sub-item.active {
+  background-color: rgba(51, 153, 255, 0.25);
+  border-left-color: #3398db;
+  font-weight: 600;
+  color: #fff;
+}
+
+.data-manage {
+  flex: 1;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #1e3a5f;
+}
+
+.input-section {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-group label {
+  font-size: 13px;
+  color: #555;
+}
+
+.input-group input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 180px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-group input:focus {
+  border-color: #3398db;
+}
+
+.project-select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 206px;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.project-select:focus {
+  border-color: #3398db;
+}
+
+.add-btn {
+  padding: 8px 24px;
+  background-color: #3398db;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-btn:hover {
+  background-color: #1e6fa8;
+}
+
+.content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.chart-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+}
+
+.chart {
+  width: 100%;
+  height: 350px;
+}
+
+.table-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead {
+  background-color: #1e3a5f;
+  color: #fff;
+}
+
+th,
+td {
+  padding: 10px 16px;
+  text-align: center;
+}
+
+tbody tr:nth-child(even) {
+  background-color: #f5f8fc;
+}
+
+.edit-btn {
+  padding: 4px 14px;
+  background-color: #f39c12;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 6px;
+}
+
+.edit-btn:hover {
+  background-color: #d68910;
+}
+
+.del-btn {
+  padding: 4px 14px;
+  background-color: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.del-btn:hover {
+  background-color: #c0392b;
+}
+
+.empty-tip {
+  text-align: center;
+  color: #999;
+  font-size: 15px;
+  margin-top: 60px;
+}
+
+.page-title-sub {
+  font-size: 18px;
+  font-weight: 400;
+  color: #555;
+}
+
+.project-link {
+  color: #3398db;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.project-link:hover {
+  text-decoration: underline;
+}
+
+.view-btn {
+  padding: 4px 14px;
+  background-color: #3398db;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-btn:hover {
+  background-color: #1e6fa8;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #3398db;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.checkin-btn {
+  padding: 4px 14px;
+  background-color: #27ae60;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkin-btn:hover {
+  background-color: #1e8449;
+}
+
+.checkin-done {
+  color: #999;
+  font-size: 13px;
+}
+
+.risk-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.risk-低 {
+  background-color: #27ae60;
+}
+
+.risk-中 {
+  background-color: #f39c12;
+}
+
+.risk-高 {
+  background-color: #e74c3c;
+}
+
+.risk-重大 {
+  background-color: #8e44ad;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 28px 32px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e3a5f;
+  margin: 0 0 20px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.modal-field label {
+  font-size: 13px;
+  color: #555;
+}
+
+.modal-field input,
+.modal-field textarea,
+.modal-field select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.modal-field input:focus,
+.modal-field textarea:focus,
+.modal-field select:focus {
+  border-color: #3398db;
+}
+
+.modal-field textarea {
+  resize: vertical;
+}
+
+.modal-field input[type="file"] {
+  padding: 6px;
+  font-size: 13px;
+}
+
+.modal-row {
+  display: flex;
+  gap: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.modal-cancel-btn {
+  padding: 8px 24px;
+  background-color: #fff;
+  color: #555;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.modal-cancel-btn:hover {
+  background-color: #f5f5f5;
+}
+
+.risk-photo-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #ddd;
+  transition: opacity 0.2s;
+}
+
+.risk-photo-thumb:hover {
+  opacity: 0.8;
+}
+
+.risk-photo-preview {
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: 4px;
+  border: 1px solid #eee;
+}
+
+.risk-photo-full {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.quality-section {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quality-section-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.quality-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.file-type-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #3398db;
+}
+
+.file-category-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #27ae60;
+}
+
+.modal-error {
+  color: #e53e3e;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.modal-tip {
+  color: #888;
+  font-size: 12px;
+}
+
+.role-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.role-admin {
+  background-color: #8e44ad;
+}
+
+.role-normal {
+  background-color: #7f8c8d;
+}
+
+.role-btn {
+  padding: 4px 12px;
+  background-color: #8e44ad;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 6px;
+}
+
+.role-btn:hover {
+  background-color: #6c3483;
+}
+
+.workflow-steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.wf-step {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wf-done {
+  background-color: #27ae60;
+  color: #fff;
+}
+
+.wf-pending {
+  background-color: #ccc;
+  color: #666;
+}
+
+.wf-arrow {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.wf-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.wf-btn-start {
+  background-color: #3398db;
+}
+
+.wf-btn-start:hover {
+  background-color: #1e6fa8;
+}
+
+.wf-btn-confirm {
+  background-color: #27ae60;
+}
+
+.wf-btn-confirm:hover {
+  background-color: #1e8449;
+}
+
+.wf-btn-review {
+  background-color: #f39c12;
+}
+
+.wf-btn-review:hover {
+  background-color: #d68910;
+}
+
+.wf-btn-final {
+  background-color: #8e44ad;
+}
+
+.wf-btn-final:hover {
+  background-color: #6c3483;
+}
+
+.wf-complete {
+  color: #27ae60;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wf-waiting {
+  color: #aaa;
+  font-size: 12px;
+}
+
+.file-preview-overlay {
+  align-items: stretch;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+}
+
+.file-preview-modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.file-preview-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e3a5f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #888;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.file-preview-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.file-preview-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.file-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+}
+
+.file-preview-pdf {
+  width: 100%;
+  height: 100%;
+}
+
+.file-preview-pdf iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  display: block;
+}
+
+.file-preview-html {
+  padding: 24px 28px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #333;
+}
+
+.file-preview-html :deep(table) {
+  border-collapse: collapse;
+  width: auto;
+  max-width: 100%;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.file-preview-html :deep(td),
+.file-preview-html :deep(th) {
+  border: 1px solid #ccc;
+  padding: 5px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.excel-sheet-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a5f;
+  background: #e8f0fa;
+  padding: 4px 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-bottom: 8px;
+  margin-top: 12px;
+}
+
+.file-preview-unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+  text-align: center;
+  padding: 24px;
+}
+</style>

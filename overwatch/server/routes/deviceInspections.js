@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import db from '../db.js'
+import db, { saveBase64Photo } from '../db.js'
 
 const router = Router()
 
@@ -15,28 +15,33 @@ router.get('/', (req, res) => {
 })
 
 router.post('/', (req, res) => {
-  const { project, deviceName, checkContent, foundRisk, warrantyStatus } = req.body
+  const { project, deviceName, checkContent, foundRisk, warrantyStatus, photo } = req.body
   if (!project || !deviceName) {
     return res.status(400).json({ error: 'Missing fields' })
   }
 
+  const photoPath = saveBase64Photo(photo || '')
+
   const info = db.prepare(
-    'INSERT INTO device_inspections (project, deviceName, checkContent, foundRisk, warrantyStatus) VALUES (?, ?, ?, ?, ?)'
-  ).run(project, deviceName, checkContent || '', foundRisk || '', warrantyStatus || '')
+    'INSERT INTO device_inspections (project, deviceName, checkContent, foundRisk, warrantyStatus, photo) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(project, deviceName, checkContent || '', foundRisk || '', warrantyStatus || '', photoPath)
 
   const row = db.prepare('SELECT * FROM device_inspections WHERE id = ?').get(Number(info.lastInsertRowid))
   res.json(row)
 })
 
 router.put('/:id', (req, res) => {
-  const { deviceName, checkContent, foundRisk, warrantyStatus } = req.body
+  const { deviceName, checkContent, foundRisk, warrantyStatus, photo } = req.body
   if (!deviceName) {
     return res.status(400).json({ error: 'Missing fields' })
   }
 
+  const existing = db.prepare('SELECT photo FROM device_inspections WHERE id = ?').get(req.params.id)
+  const photoPath = photo ? saveBase64Photo(photo) : (existing ? existing.photo : '')
+
   db.prepare(
-    'UPDATE device_inspections SET deviceName = ?, checkContent = ?, foundRisk = ?, warrantyStatus = ? WHERE id = ?'
-  ).run(deviceName, checkContent || '', foundRisk || '', warrantyStatus || '', req.params.id)
+    'UPDATE device_inspections SET deviceName = ?, checkContent = ?, foundRisk = ?, warrantyStatus = ?, photo = ? WHERE id = ?'
+  ).run(deviceName, checkContent || '', foundRisk || '', warrantyStatus || '', photoPath, req.params.id)
 
   const row = db.prepare('SELECT * FROM device_inspections WHERE id = ?').get(req.params.id)
   res.json(row)

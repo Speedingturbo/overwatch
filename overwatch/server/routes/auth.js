@@ -6,12 +6,18 @@ const router = Router()
 
 const BCRYPT_ROUNDS = 10
 
+const ALLOWED_ROLES = ['监理工程师', '施工班组长', '项目经理']
+
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
-  const { username, realName, phone, password } = req.body
+  const { username, realName, phone, password, role } = req.body
 
-  if (!username?.trim() || !realName?.trim() || !phone?.trim() || !password) {
+  if (!username?.trim() || !realName?.trim() || !phone?.trim() || !password || !role?.trim()) {
     return res.status(400).json({ error: '请完整填写注册信息' })
+  }
+
+  if (!ALLOWED_ROLES.includes(role.trim())) {
+    return res.status(400).json({ error: '请选择有效的角色' })
   }
 
   if (!/^1\d{10}$/.test(phone.trim())) {
@@ -36,14 +42,15 @@ router.post('/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
 
     const result = db.prepare(
-      'INSERT INTO users (username, real_name, phone, password_hash) VALUES (?, ?, ?, ?)'
-    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash)
+      'INSERT INTO users (username, real_name, phone, password_hash, role) VALUES (?, ?, ?, ?, ?)'
+    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash, role.trim())
 
     return res.status(201).json({
       id: result.lastInsertRowid,
       username: username.trim(),
       realName: realName.trim(),
       phone: phone.trim(),
+      role: role.trim(),
     })
   } catch (err) {
     console.error('Register error:', err)
@@ -79,6 +86,7 @@ router.post('/login', async (req, res) => {
       createdAt: user.created_at,
       isAdmin: Boolean(user.is_admin),
       role: user.role || '',
+      assignedProject: user.assigned_project || '',
     })
   } catch (err) {
     console.error('Login error:', err)
@@ -93,7 +101,7 @@ router.post('/users', async (req, res) => {
   const admin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(adminId)
   if (!admin || !admin.is_admin) return res.status(403).json({ error: '无管理员权限' })
 
-  const { username, realName, phone, role, isAdmin } = req.body
+  const { username, realName, phone, role, isAdmin, assignedProject } = req.body
   if (!username?.trim() || !realName?.trim() || !phone?.trim()) {
     return res.status(400).json({ error: '账号名、姓名和联系方式为必填项' })
   }
@@ -110,9 +118,9 @@ router.post('/users', async (req, res) => {
     const defaultPassword = phone.trim().slice(-6)
     const passwordHash = await bcrypt.hash(defaultPassword, BCRYPT_ROUNDS)
     const result = db.prepare(
-      'INSERT INTO users (username, real_name, phone, password_hash, role, is_admin) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash, (role || '').trim(), isAdmin ? 1 : 0)
-    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users WHERE id = ?').get(result.lastInsertRowid)
+      'INSERT INTO users (username, real_name, phone, password_hash, role, is_admin, assigned_project) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(username.trim(), realName.trim(), phone.trim(), passwordHash, (role || '').trim(), isAdmin ? 1 : 0, (assignedProject || '').trim())
+    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role, assigned_project FROM users WHERE id = ?').get(result.lastInsertRowid)
     return res.status(201).json(user)
   } catch (err) {
     console.error('Create user error:', err)
@@ -122,14 +130,14 @@ router.post('/users', async (req, res) => {
 
 // GET /api/auth/users — 获取所有注册账号（不返回密码）
 router.get('/users', (req, res) => {
-  const users = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users ORDER BY id ASC').all()
+  const users = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role, assigned_project FROM users ORDER BY id ASC').all()
   return res.json(users)
 })
 
 // PUT /api/auth/users/:id — 编辑账号名和/或密码、角色
 router.put('/users/:id', async (req, res) => {
   const { id } = req.params
-  const { username, password, role } = req.body
+  const { username, password, role, assignedProject } = req.body
 
   if (!username?.trim()) {
     return res.status(400).json({ error: '账号名不能为空' })
@@ -146,12 +154,12 @@ router.put('/users/:id', async (req, res) => {
         return res.status(400).json({ error: '密码长度不能少于6位' })
       }
       const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
-      db.prepare('UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?').run(username.trim(), passwordHash, (role ?? '').trim(), id)
+      db.prepare('UPDATE users SET username = ?, password_hash = ?, role = ?, assigned_project = ? WHERE id = ?').run(username.trim(), passwordHash, (role ?? '').trim(), (assignedProject ?? '').trim(), id)
     } else {
-      db.prepare('UPDATE users SET username = ?, role = ? WHERE id = ?').run(username.trim(), (role ?? '').trim(), id)
+      db.prepare('UPDATE users SET username = ?, role = ?, assigned_project = ? WHERE id = ?').run(username.trim(), (role ?? '').trim(), (assignedProject ?? '').trim(), id)
     }
 
-    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role FROM users WHERE id = ?').get(id)
+    const user = db.prepare('SELECT id, username, real_name, phone, created_at, is_admin, role, assigned_project FROM users WHERE id = ?').get(id)
     return res.json(user)
   } catch (err) {
     console.error('Update user error:', err)

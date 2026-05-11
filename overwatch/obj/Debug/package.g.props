@@ -18,9 +18,11 @@
     <PackageJsonDependenciesCors Condition="$(PackageJsonDependenciesCors) == ''">^2.8.6</PackageJsonDependenciesCors>
     <PackageJsonDependenciesEcharts Condition="$(PackageJsonDependenciesEcharts) == ''">^6.0.0</PackageJsonDependenciesEcharts>
     <PackageJsonDependenciesExpress Condition="$(PackageJsonDependenciesExpress) == ''">^5.2.1</PackageJsonDependenciesExpress>
+    <PackageJsonDependenciesMammoth Condition="$(PackageJsonDependenciesMammoth) == ''">^1.12.0</PackageJsonDependenciesMammoth>
     <PackageJsonDependenciesMulter Condition="$(PackageJsonDependenciesMulter) == ''">^2.1.1</PackageJsonDependenciesMulter>
     <PackageJsonDependenciesVue Condition="$(PackageJsonDependenciesVue) == ''">^3.5.29</PackageJsonDependenciesVue>
     <PackageJsonDependenciesVueRouter Condition="$(PackageJsonDependenciesVueRouter) == ''">^4.6.4</PackageJsonDependenciesVueRouter>
+    <PackageJsonDependenciesXlsx Condition="$(PackageJsonDependenciesXlsx) == ''">^0.18.5</PackageJsonDependenciesXlsx>
     <PackageJsonDevdependenciesEslintJs Condition="$(PackageJsonDevdependenciesEslintJs) == ''">^10.0.1</PackageJsonDevdependenciesEslintJs>
     <PackageJsonDevdependenciesVitejsPluginVue Condition="$(PackageJsonDevdependenciesVitejsPluginVue) == ''">^6.0.4</PackageJsonDevdependenciesVitejsPluginVue>
     <PackageJsonDevdependenciesEslint Condition="$(PackageJsonDevdependenciesEslint) == ''">^10.0.2</PackageJsonDevdependenciesEslint>

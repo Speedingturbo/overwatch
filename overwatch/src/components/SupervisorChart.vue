@@ -36,7 +36,7 @@ function updateChart() {
       orient: 'vertical',
       right: 8,
       top: 'center',
-      textStyle: { color: '#333', fontSize: 11 }
+      textStyle: { color: '#fff', fontSize: 11 }
     },
     series: [{
       name: '项目监理人员分布',
@@ -48,7 +48,7 @@ function updateChart() {
       label: {
         show: true,
         formatter: '{b}\n{c}人',
-        color: '#333',
+        color: '#fff',
         fontSize: 10,
         overflow: 'truncate',
         ellipsis: '...'
@@ -57,7 +57,7 @@ function updateChart() {
         length: 8,
         length2: 6
       },
-      emphasis: { label: { show: true, formatter: '{b}\n{c}人', color: '#333', fontSize: 11 } },
+      emphasis: { label: { show: true, formatter: '{b}\n{c}人', color: '#fff', fontSize: 11 } },
       data: projectStats.value
     }],
     backgroundColor: 'transparent'

@@ -53,7 +53,7 @@ async function addOverview() {
   const name = ovName.value.trim()
   const contractor = ovContractor.value.trim()
   const location = ovLocation.value.trim()
-  if (!name || !contractor || !location) return
+  if (!name || !contractor) return
   const item = await api.post('/api/overview', { name, contractor, location })
   overviewList.value.push(item)
   ovName.value = ''
@@ -118,7 +118,7 @@ async function saveEditOverview() {
   const name = editOvName.value.trim()
   const contractor = editOvContractor.value.trim()
   const location = editOvLocation.value.trim()
-  if (!name || !contractor || !location) return
+  if (!name || !contractor) return
   const idx = editOverviewIndex.value
   const oldName = overviewList.value[idx].name
   const updated = await api.put('/api/overview/' + overviewList.value[idx].id, { name, contractor, location, oldName })
@@ -858,6 +858,7 @@ const hazardType = ref('')              // 危险有害因素类别
 const hazardPossibleAccident = ref('')  // 可能导致的事故类型
 const hazardControlMeasure = ref('')    // 控制措施
 const hazardLevel = ref('')             // 风险等级（低/中/高/重大）
+const hazardPhoto = ref('')             // 危险源图片（Base64）
 const hazardList = ref([])              // 所有危险源辨识数据列表
 const hazardActiveProject = ref(null)   // 当前选中查看的项目名（二级视图）
 const hazardModalVisible = ref(false)   // 添加弹窗是否可见
@@ -910,12 +911,22 @@ function openHazardModal() {
   hazardPossibleAccident.value = ''
   hazardControlMeasure.value = ''
   hazardLevel.value = ''
+  hazardPhoto.value = ''
   hazardModalVisible.value = true
 }
 
 // 关闭添加危险源弹窗
 function closeHazardModal() {
   hazardModalVisible.value = false
+}
+
+// 处理危险源图片上传
+function handleHazardPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => { hazardPhoto.value = reader.result }
+  reader.readAsDataURL(file)
 }
 
 // 提交新的危险源辨识记录到后端，成功后关闭弹窗
@@ -934,7 +945,8 @@ async function addHazard() {
     hazardType: type,
     possibleAccident,
     controlMeasure,
-    level
+    level,
+    photo: hazardPhoto.value
   })
   hazardList.value.push(item)
   hazardModalVisible.value = false
@@ -958,6 +970,7 @@ function openEditHazard(filteredIndex) {
   hazardPossibleAccident.value = item.possibleAccident || ''
   hazardControlMeasure.value = item.controlMeasure || ''
   hazardLevel.value = item.level || ''
+  hazardPhoto.value = item.photo || ''
   editHazardModalVisible.value = true
 }
 
@@ -981,7 +994,8 @@ async function saveEditHazard() {
     hazardType: type,
     possibleAccident: hazardPossibleAccident.value.trim(),
     controlMeasure: hazardControlMeasure.value.trim(),
-    level
+    level,
+    photo: hazardPhoto.value
   })
   hazardList.value[idx] = updated
   editHazardModalVisible.value = false
@@ -992,11 +1006,15 @@ const inspectionList = ref([])
 const inspectionActiveProject = ref(null)
 const inspectionModalVisible = ref(false)
 const inspectionDeviceName = ref('')
+const inspectionHasRisk = ref('')   // 'yes' | 'no' | ''
 const inspectionCheckContent = ref('')
 const inspectionFoundRisk = ref('')
 const inspectionWarrantyStatus = ref('')
 const inspectionEditIndex = ref(-1)
 const editInspectionModalVisible = ref(false)
+const editInspectionHasRisk = ref('')  // 'yes' | 'no' | ''
+const inspectionPhoto = ref('')        // 巡检照片（Base64 或路径）
+const inspectionPreviewPhoto = ref('') // 巡检照片预览
 
 async function loadInspections() {
   inspectionList.value = await api.get('/api/device-inspections')
@@ -1027,9 +1045,19 @@ function backToInspectionList() {
 
 function resetInspectionForm() {
   inspectionDeviceName.value = ''
+  inspectionHasRisk.value = ''
   inspectionCheckContent.value = ''
   inspectionFoundRisk.value = ''
   inspectionWarrantyStatus.value = ''
+  inspectionPhoto.value = ''
+}
+
+function handleInspectionPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => { inspectionPhoto.value = reader.result }
+  reader.readAsDataURL(file)
 }
 
 function openInspectionModal() {
@@ -1044,14 +1072,15 @@ function closeInspectionModal() {
 
 async function addInspection() {
   const deviceName = inspectionDeviceName.value.trim()
-  if (!deviceName) return
+  if (!deviceName || !inspectionHasRisk.value) return
 
   const item = await api.post('/api/device-inspections', {
     project: inspectionActiveProject.value,
     deviceName,
     checkContent: inspectionCheckContent.value.trim(),
-    foundRisk: inspectionFoundRisk.value.trim(),
-    warrantyStatus: inspectionWarrantyStatus.value.trim()
+    foundRisk: inspectionHasRisk.value === 'yes' ? inspectionFoundRisk.value.trim() : '',
+    warrantyStatus: inspectionWarrantyStatus.value.trim(),
+    photo: inspectionPhoto.value
   })
 
   inspectionList.value.unshift(item)
@@ -1064,7 +1093,9 @@ function openEditInspection(filteredIndex) {
   inspectionDeviceName.value = item.deviceName || ''
   inspectionCheckContent.value = item.checkContent || ''
   inspectionFoundRisk.value = item.foundRisk || ''
+  editInspectionHasRisk.value = item.foundRisk ? 'yes' : 'no'
   inspectionWarrantyStatus.value = item.warrantyStatus || ''
+  inspectionPhoto.value = item.photo || ''
   editInspectionModalVisible.value = true
 }
 
@@ -1077,14 +1108,15 @@ async function saveEditInspection() {
   if (idx < 0) return
 
   const deviceName = inspectionDeviceName.value.trim()
-  if (!deviceName) return
+  if (!deviceName || !editInspectionHasRisk.value) return
 
   const item = inspectionList.value[idx]
   const updated = await api.put('/api/device-inspections/' + item.id, {
     deviceName,
     checkContent: inspectionCheckContent.value.trim(),
-    foundRisk: inspectionFoundRisk.value.trim(),
-    warrantyStatus: inspectionWarrantyStatus.value.trim()
+    foundRisk: editInspectionHasRisk.value === 'yes' ? inspectionFoundRisk.value.trim() : '',
+    warrantyStatus: inspectionWarrantyStatus.value.trim(),
+    photo: inspectionPhoto.value
   })
 
   inspectionList.value[idx] = updated
@@ -1214,6 +1246,77 @@ const fileUploading = ref(false)
 const fileCategory = ref('其他文件')
 const fileUploadModalVisible = ref(false)  // 上传弹窗是否可见
 const fileFilterCategory = ref('')  // 文件筛选分类
+
+// 文件预览状态
+const filePreviewVisible = ref(false)
+const filePreviewTitle = ref('')
+const filePreviewType = ref('')   // 'pdf' | 'excel' | 'docx' | 'unsupported'
+const filePreviewUrl = ref('')    // PDF 用
+const filePreviewHtml = ref('')   // DOCX / Excel 用
+const filePreviewLoading = ref(false)
+const filePreviewError = ref('')
+
+async function previewFile(item) {
+  filePreviewTitle.value = item.filename
+  filePreviewHtml.value = ''
+  filePreviewUrl.value = ''
+  filePreviewError.value = ''
+  filePreviewLoading.value = true
+  filePreviewVisible.value = true
+
+  const mime = item.mimetype || ''
+  const name = (item.filename || '').toLowerCase()
+
+  const isPdf = mime === 'application/pdf' || name.endsWith('.pdf')
+  const isDocx = mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')
+  const isDoc = mime === 'application/msword' || name.endsWith('.doc')
+  const isXlsx = mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || name.endsWith('.xlsx')
+  const isXls = mime === 'application/vnd.ms-excel' || name.endsWith('.xls')
+
+  try {
+    if (isPdf) {
+      filePreviewType.value = 'pdf'
+      filePreviewUrl.value = '/api/files/' + item.id + '/download'
+    } else if (isDocx) {
+      filePreviewType.value = 'docx'
+      const mammoth = (await import('mammoth')).default
+      const res = await fetch('/api/files/' + item.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const result = await mammoth.convertToHtml({ arrayBuffer })
+      filePreviewHtml.value = result.value
+    } else if (isDoc) {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '暂不支持 .doc 格式在线预览，请下载后使用 Word 打开'
+    } else if (isXlsx || isXls) {
+      filePreviewType.value = 'excel'
+      const XLSX = await import('xlsx')
+      const res = await fetch('/api/files/' + item.id + '/download')
+      const arrayBuffer = await res.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      let html = ''
+      workbook.SheetNames.forEach(sheetName => {
+        const sheet = workbook.Sheets[sheetName]
+        html += `<div class="excel-sheet-label">${sheetName}</div>`
+        html += XLSX.utils.sheet_to_html(sheet, { header: '', editable: false })
+      })
+      filePreviewHtml.value = html
+    } else {
+      filePreviewType.value = 'unsupported'
+      filePreviewError.value = '该文件类型暂不支持在线预览'
+    }
+  } catch (e) {
+    filePreviewType.value = 'unsupported'
+    filePreviewError.value = '文件预览失败：' + (e.message || '未知错误')
+  } finally {
+    filePreviewLoading.value = false
+  }
+}
+
+function closeFilePreview() {
+  filePreviewVisible.value = false
+  filePreviewUrl.value = ''
+  filePreviewHtml.value = ''
+}
 
 function normalizeFileCategory(category) {
   const value = typeof category === 'string' ? category.trim() : ''
@@ -1459,16 +1562,34 @@ const editAccountId = ref(null)
 const editAccountUsername = ref('')
 const editAccountPassword = ref('')
 const editAccountRole = ref('')
+const editAccountAssignedProject = ref('')
 const editAccountError = ref('')
 const createAccountVisible = ref(false)
 const createAccountUsername = ref('')
 const createAccountRealName = ref('')
 const createAccountPhone = ref('')
 const createAccountRole = ref('')
+const createAccountAssignedProject = ref('')
 const createAccountIsAdmin = ref(false)
 const createAccountError = ref('')
 const currentUser = ref(JSON.parse(localStorage.getItem('overwatch-auth-user') || 'null'))
 const isCurrentUserAdmin = computed(() => Boolean(currentUser.value?.isAdmin))
+
+// 当前用户被分配的项目（非管理员限制查看范围）
+const currentUserAssignedProject = computed(() => currentUser.value?.assignedProject || '')
+// 是否为受限用户：非管理员且被分配了项目
+const isRestrictedUser = computed(() => !isCurrentUserAdmin.value && Boolean(currentUserAssignedProject.value))
+
+// 受限用户只能看到被分配的项目，管理员看全部
+const visibleOverviewList = computed(() => {
+  if (!isRestrictedUser.value) return overviewList.value
+  return overviewList.value.filter(ov => ov.name === currentUserAssignedProject.value)
+})
+
+const visibleProjects = computed(() => {
+  if (!isRestrictedUser.value) return projects.value
+  return projects.value.filter(p => p.name === currentUserAssignedProject.value)
+})
 
 async function loadAccounts() {
   try {
@@ -1478,7 +1599,7 @@ async function loadAccounts() {
     if (currentUser.value) {
       const me = list.find(a => a.id === currentUser.value.id)
       if (me) {
-        currentUser.value = { ...currentUser.value, isAdmin: Boolean(me.is_admin), role: me.role || '' }
+        currentUser.value = { ...currentUser.value, isAdmin: Boolean(me.is_admin), role: me.role || '', assignedProject: me.assigned_project || '' }
         localStorage.setItem('overwatch-auth-user', JSON.stringify(currentUser.value))
       }
     }
@@ -1492,6 +1613,7 @@ function openEditAccount(account) {
   editAccountUsername.value = account.username
   editAccountPassword.value = ''
   editAccountRole.value = account.role || ''
+  editAccountAssignedProject.value = account.assigned_project || ''
   editAccountError.value = ''
   editAccountVisible.value = true
 }
@@ -1505,6 +1627,7 @@ function openCreateAccount() {
   createAccountRealName.value = ''
   createAccountPhone.value = ''
   createAccountRole.value = ''
+  createAccountAssignedProject.value = ''
   createAccountIsAdmin.value = false
   createAccountError.value = ''
   createAccountVisible.value = true
@@ -1527,7 +1650,7 @@ async function saveCreateAccount() {
     const result = await fetch('/api/auth/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-id': String(currentUser.value?.id) },
-      body: JSON.stringify({ username, realName, phone, role: createAccountRole.value.trim(), isAdmin: createAccountIsAdmin.value })
+      body: JSON.stringify({ username, realName, phone, role: createAccountRole.value.trim(), isAdmin: createAccountIsAdmin.value, assignedProject: createAccountAssignedProject.value.trim() })
     }).then(r => r.json())
     if (result.error) {
       createAccountError.value = result.error
@@ -1549,7 +1672,7 @@ async function saveEditAccount() {
     return
   }
   try {
-    const updated = await api.put('/api/auth/users/' + editAccountId.value, { username, password: password || undefined, role: editAccountRole.value.trim() })
+    const updated = await api.put('/api/auth/users/' + editAccountId.value, { username, password: password || undefined, role: editAccountRole.value.trim(), assignedProject: editAccountAssignedProject.value.trim() })
     if (updated.error) {
       editAccountError.value = updated.error
       return
@@ -1683,6 +1806,7 @@ onBeforeUnmount(() => {
           @click="activeTab = 'files'; backToFileList()"
         >项目文件</li>
         <li
+          v-if="isCurrentUserAdmin"
           :class="['sidebar-item', { active: activeTab === 'accounts' }]"
           @click="activeTab = 'accounts'"
         >账号管理</li>
@@ -1704,8 +1828,8 @@ onBeforeUnmount(() => {
       </h2>
 
       <div v-show="activeTab === 'progress'">
-      <div v-if="overviewList.length" class="input-section">
-      <div class="input-group">
+      <div v-if="visibleOverviewList.length" class="input-section">
+      <div class="input-group" v-if="isCurrentUserAdmin">
         <label>选择项目</label>
         <select v-model="selectedProject" class="project-select">
           <option value="" disabled>请选择项目</option>
@@ -1714,7 +1838,7 @@ onBeforeUnmount(() => {
           </option>
         </select>
       </div>
-      <div class="input-group">
+      <div class="input-group" v-if="isCurrentUserAdmin">
         <label>项目进度 (%)</label>
         <input
           v-model="projectProgress"
@@ -1725,12 +1849,12 @@ onBeforeUnmount(() => {
           @keyup.enter="addProject"
         />
       </div>
-      <button class="add-btn" @click="addProject">添加</button>
+      <button class="add-btn" v-if="isCurrentUserAdmin" @click="addProject">添加</button>
     </div>
     <div v-else class="empty-tip">请先在「项目概况」中添加项目</div>
 
-    <div class="content-section" v-show="projects.length">
-      <div class="chart-wrapper">
+    <div class="content-section" v-show="visibleProjects.length">
+      <div class="chart-wrapper" v-if="isCurrentUserAdmin">
         <div ref="chartRef" class="chart"></div>
       </div>
 
@@ -1741,26 +1865,26 @@ onBeforeUnmount(() => {
               <th>序号</th>
               <th>项目名称</th>
               <th>进度 (%)</th>
-              <th>操作</th>
+              <th v-if="isCurrentUserAdmin">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(item, idx) in projects" :key="idx">
+            <tr v-for="(item, idx) in visibleProjects" :key="idx">
               <td>{{ idx + 1 }}</td>
               <td>{{ item.name }}</td>
               <td>{{ item.progress }}</td>
-              <td><button class="del-btn" @click="removeProject(idx)">删除</button></td>
+              <td v-if="isCurrentUserAdmin"><button class="del-btn" @click="removeProject(projects.indexOf(item))">删除</button></td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <div v-show="overviewList.length && !projects.length" class="empty-tip">暂无进度数据，请选择项目并填写进度</div>
+    <div v-show="visibleOverviewList.length && !visibleProjects.length" class="empty-tip">暂无进度数据，请选择项目并填写进度</div>
       </div>
 
       <div v-show="activeTab === 'overview'">
-        <div class="input-section">
+        <div class="input-section" v-if="isCurrentUserAdmin">
           <div class="input-group">
             <label>项目名称</label>
             <input v-model="ovName" placeholder="请输入项目名称" @keyup.enter="addOverview" />
@@ -1771,12 +1895,12 @@ onBeforeUnmount(() => {
           </div>
           <div class="input-group">
             <label>项目位置</label>
-            <input v-model="ovLocation" placeholder="请输入项目位置" @keyup.enter="addOverview" />
+            <input v-model="ovLocation" placeholder="请输入项目位置（选填）" @keyup.enter="addOverview" />
           </div>
           <button class="add-btn" @click="addOverview">添加</button>
         </div>
 
-        <div class="table-wrapper" v-show="overviewList.length">
+        <div class="table-wrapper" v-show="visibleOverviewList.length">
           <table>
             <thead>
               <tr>
@@ -1784,25 +1908,25 @@ onBeforeUnmount(() => {
                 <th>项目名称</th>
                 <th>项目承建方</th>
                 <th>项目位置</th>
-                <th>操作</th>
+                <th v-if="isCurrentUserAdmin">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in overviewList" :key="idx">
+              <tr v-for="(item, idx) in visibleOverviewList" :key="idx">
                 <td>{{ idx + 1 }}</td>
                 <td>{{ item.name }}</td>
                 <td>{{ item.contractor }}</td>
                 <td>{{ item.location }}</td>
-                <td>
-                  <button class="edit-btn" @click="openEditOverview(idx)">编辑</button>
-                  <button class="del-btn" @click="removeOverview(idx)">删除</button>
+                <td v-if="isCurrentUserAdmin">
+                  <button class="edit-btn" @click="openEditOverview(overviewList.indexOf(item))">编辑</button>
+                  <button class="del-btn" @click="removeOverview(overviewList.indexOf(item))">删除</button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <div v-show="!overviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
+        <div v-show="!visibleOverviewList.length" class="empty-tip">暂无数据，请添加项目信息</div>
 
         <!-- 编辑项目浮窗 -->
         <div v-if="editOverviewVisible" class="modal-overlay" @click.self="closeEditOverview">
@@ -1819,7 +1943,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="modal-field">
                 <label>项目位置</label>
-                <input v-model="editOvLocation" placeholder="请输入项目位置" />
+                <input v-model="editOvLocation" placeholder="请输入项目位置（选填）" />
               </div>
             </div>
             <div class="modal-actions">
@@ -1833,7 +1957,7 @@ onBeforeUnmount(() => {
       <div v-show="activeTab === 'staff'">
         <!-- 一级：项目列表 -->
         <div v-if="!staffActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -1844,7 +1968,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterStaffProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ staffCountByProject[ov.name] || 0 }} 人</td>
@@ -1853,12 +1977,12 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="overviewList.length && staffList.length" class="content-section" style="margin-top: 24px;">
+          <div v-if="visibleOverviewList.length && staffList.length" class="content-section" style="margin-top: 24px;">
             <div class="chart-wrapper">
               <div ref="projectStaffChartRef" class="chart"></div>
             </div>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：项目人员详情 -->
@@ -1929,7 +2053,7 @@ onBeforeUnmount(() => {
       <div v-show="activeTab === 'supervisor'">
         <!-- 一级：项目列表 -->
         <div v-if="!supervisorActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -1940,7 +2064,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterSupervisorProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ supervisorCountByProject[ov.name] || 0 }} 人</td>
@@ -1949,12 +2073,12 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="overviewList.length && supervisorList.length" class="content-section" style="margin-top: 24px;">
+          <div v-if="visibleOverviewList.length && supervisorList.length" class="content-section" style="margin-top: 24px;">
             <div class="chart-wrapper">
               <div ref="projectSupervisorChartRef" class="chart"></div>
             </div>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：监理人员详情 -->
@@ -2012,7 +2136,7 @@ onBeforeUnmount(() => {
       <div v-show="activeTab === 'risk'">
         <!-- 一级：项目列表 -->
         <div v-if="!riskActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2023,7 +2147,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterRiskProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
@@ -2032,12 +2156,12 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="overviewList.length && riskList.length" class="content-section" style="margin-top: 24px;">
+          <div v-if="visibleOverviewList.length && riskList.length" class="content-section" style="margin-top: 24px;">
             <div class="chart-wrapper">
               <div ref="riskBarChartRef" class="chart"></div>
             </div>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：安全风险隐患详情 -->
@@ -2206,7 +2330,7 @@ onBeforeUnmount(() => {
 
       <div v-show="activeTab === 'riskHandle'">
         <div v-if="!riskHandleActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2219,7 +2343,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterRiskHandleProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ riskCountByProject[ov.name] || 0 }} 条</td>
@@ -2230,7 +2354,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <div v-else>
@@ -2316,7 +2440,7 @@ onBeforeUnmount(() => {
       <div v-show="activeTab === 'hazard'">
         <!-- 一级：项目列表视图 -->
         <div v-if="!hazardActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2327,7 +2451,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterHazardProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ hazardCountByProject[ov.name] || 0 }} 条</td>
@@ -2336,7 +2460,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：危险源辨识清单详情 -->
@@ -2369,6 +2493,7 @@ onBeforeUnmount(() => {
                   <th>危险有害因素类别</th>
                   <th>可能导致的事故类型</th>
                   <th>风险等级</th>
+                  <th>图片</th>
                   <th>控制措施</th>
                   <th>操作</th>
                 </tr>
@@ -2382,6 +2507,10 @@ onBeforeUnmount(() => {
                   <td>{{ item.possibleAccident || '—' }}</td>
                   <td>
                     <span :class="'risk-tag risk-' + item.level">{{ item.level }}</span>
+                  </td>
+                  <td>
+                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="previewPhoto = item.photo" />
+                    <span v-else>—</span>
                   </td>
                   <td>{{ item.controlMeasure || '—' }}</td>
                   <td>
@@ -2432,6 +2561,13 @@ onBeforeUnmount(() => {
                   <label>控制措施</label>
                   <textarea v-model="hazardControlMeasure" placeholder="请输入控制措施" rows="3"></textarea>
                 </div>
+                <div class="modal-field">
+                  <label>危险源图片</label>
+                  <input type="file" accept="image/*" @change="handleHazardPhoto" />
+                </div>
+                <div class="modal-field" v-if="hazardPhoto">
+                  <img :src="hazardPhoto" class="risk-photo-preview" />
+                </div>
               </div>
               <div class="modal-actions">
                 <button class="modal-cancel-btn" @click="closeHazardModal">取消</button>
@@ -2477,6 +2613,13 @@ onBeforeUnmount(() => {
                   <label>控制措施</label>
                   <textarea v-model="hazardControlMeasure" placeholder="请输入控制措施" rows="3"></textarea>
                 </div>
+                <div class="modal-field">
+                  <label>危险源图片</label>
+                  <input type="file" accept="image/*" @change="handleHazardPhoto" />
+                </div>
+                <div class="modal-field" v-if="hazardPhoto">
+                  <img :src="hazardPhoto" class="risk-photo-preview" />
+                </div>
               </div>
               <div class="modal-actions">
                 <button class="modal-cancel-btn" @click="closeEditHazard">取消</button>
@@ -2484,13 +2627,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+
+          <!-- 照片预览浮层 -->
+          <div v-if="previewPhoto" class="modal-overlay" @click="previewPhoto = ''">
+            <img :src="previewPhoto" class="risk-photo-full" />
+          </div>
         </div>
       </div>
 
       <div v-show="activeTab === 'preshift'">
         <!-- 一级：项目列表 -->
         <div v-if="!preshiftActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2501,7 +2649,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterPreshiftProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ preshiftCountByProject[ov.name] || 0 }} 条</td>
@@ -2510,7 +2658,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：站例会记录详情 -->
@@ -2603,7 +2751,7 @@ onBeforeUnmount(() => {
 
       <div v-show="activeTab === 'inspection'">
         <div v-if="!inspectionActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2614,7 +2762,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterInspectionProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ inspectionCountByProject[ov.name] || 0 }} 条</td>
@@ -2623,7 +2771,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <div v-else>
@@ -2641,6 +2789,7 @@ onBeforeUnmount(() => {
                   <th>设备名</th>
                   <th>日常检查内容</th>
                   <th>已发现风险</th>
+                  <th>巡检照片</th>
                   <th>保修情况</th>
                   <th>操作</th>
                 </tr>
@@ -2650,7 +2799,14 @@ onBeforeUnmount(() => {
                   <td>{{ idx + 1 }}</td>
                   <td>{{ item.deviceName }}</td>
                   <td>{{ item.checkContent || '—' }}</td>
-                  <td>{{ item.foundRisk || '—' }}</td>
+                  <td>
+                    <span v-if="!item.foundRisk" class="no-risk-tag">✓ 无风险</span>
+                    <span v-else>{{ item.foundRisk }}</span>
+                  </td>
+                  <td>
+                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="inspectionPreviewPhoto = item.photo" />
+                    <span v-else>—</span>
+                  </td>
                   <td>{{ item.warrantyStatus || '—' }}</td>
                   <td>
                     <button class="edit-btn" @click="openEditInspection(idx)">编辑</button>
@@ -2676,12 +2832,30 @@ onBeforeUnmount(() => {
                   <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
                 </div>
                 <div class="modal-field">
-                  <label>已发现风险</label>
-                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                  <label>是否发现风险</label>
+                  <div class="risk-radio-group">
+                    <label class="risk-radio-label">
+                      <input type="radio" v-model="inspectionHasRisk" value="no" /> 无风险
+                    </label>
+                    <label class="risk-radio-label">
+                      <input type="radio" v-model="inspectionHasRisk" value="yes" /> 有风险
+                    </label>
+                  </div>
+                </div>
+                <div class="modal-field" v-if="inspectionHasRisk === 'yes'">
+                  <label>风险内容</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现的风险内容" rows="3"></textarea>
                 </div>
                 <div class="modal-field">
                   <label>保修情况</label>
                   <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>巡检照片</label>
+                  <input type="file" accept="image/*" @change="handleInspectionPhoto" />
+                </div>
+                <div class="modal-field" v-if="inspectionPhoto">
+                  <img :src="inspectionPhoto" class="risk-photo-preview" />
                 </div>
               </div>
               <div class="modal-actions">
@@ -2704,12 +2878,30 @@ onBeforeUnmount(() => {
                   <textarea v-model="inspectionCheckContent" placeholder="请输入日常检查内容" rows="3"></textarea>
                 </div>
                 <div class="modal-field">
-                  <label>已发现风险</label>
-                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现风险" rows="3"></textarea>
+                  <label>是否发现风险</label>
+                  <div class="risk-radio-group">
+                    <label class="risk-radio-label">
+                      <input type="radio" v-model="editInspectionHasRisk" value="no" /> 无风险
+                    </label>
+                    <label class="risk-radio-label">
+                      <input type="radio" v-model="editInspectionHasRisk" value="yes" /> 有风险
+                    </label>
+                  </div>
+                </div>
+                <div class="modal-field" v-if="editInspectionHasRisk === 'yes'">
+                  <label>风险内容</label>
+                  <textarea v-model="inspectionFoundRisk" placeholder="请输入已发现的风险内容" rows="3"></textarea>
                 </div>
                 <div class="modal-field">
                   <label>保修情况</label>
                   <textarea v-model="inspectionWarrantyStatus" placeholder="请输入保修情况" rows="2"></textarea>
+                </div>
+                <div class="modal-field">
+                  <label>巡检照片</label>
+                  <input type="file" accept="image/*" @change="handleInspectionPhoto" />
+                </div>
+                <div class="modal-field" v-if="inspectionPhoto">
+                  <img :src="inspectionPhoto" class="risk-photo-preview" />
                 </div>
               </div>
               <div class="modal-actions">
@@ -2718,13 +2910,17 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+            <!-- 巡检照片预览浮层 -->
+            <div v-if="inspectionPreviewPhoto" class="modal-overlay" @click="inspectionPreviewPhoto = ''">
+              <img :src="inspectionPreviewPhoto" class="risk-photo-full" />
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div v-show="activeTab === 'quality'">
+        <div v-show="activeTab === 'quality'">
         <!-- 一级：项目列表 -->
         <div v-if="!qualityActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2735,7 +2931,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterQualityProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ qualityCountByProject[ov.name] || 0 }} 条</td>
@@ -2744,7 +2940,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：质量管理详情 -->
@@ -2908,7 +3104,7 @@ onBeforeUnmount(() => {
       <div v-show="activeTab === 'files'">
         <!-- 一级：项目列表 -->
         <div v-if="!fileActiveProject">
-          <div v-if="overviewList.length" class="table-wrapper">
+          <div v-if="visibleOverviewList.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
@@ -2919,7 +3115,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(ov, idx) in overviewList" :key="ov.name">
+                <tr v-for="(ov, idx) in visibleOverviewList" :key="ov.name">
                   <td>{{ idx + 1 }}</td>
                   <td class="project-link" @click="enterFileProject(ov.name)">{{ ov.name }}</td>
                   <td>{{ fileCountByProject[ov.name] || 0 }} 个</td>
@@ -2928,7 +3124,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </div>
-          <div v-if="!overviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
+          <div v-if="!visibleOverviewList.length" class="empty-tip">请先在「项目概况」中添加项目</div>
         </div>
 
         <!-- 二级：项目文件详情 -->
@@ -2969,7 +3165,8 @@ onBeforeUnmount(() => {
                   <td><span class="file-category-tag">{{ getFileCategoryLabel(item.category) }}</span></td>
                   <td>{{ item.uploadTime }}</td>
                   <td>
-                    <button class="view-btn" @click="downloadFile(item)">下载</button>
+                    <button class="view-btn" @click="previewFile(item)">预览</button>
+                    <button class="view-btn" @click="downloadFile(item)" style="margin-left:6px">下载</button>
                     <button class="del-btn" @click="removeFile(idx)" style="margin-left:6px">删除</button>
                   </td>
                 </tr>
@@ -3004,6 +3201,24 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+
+          <!-- 文件预览弹窗 -->
+          <div v-if="filePreviewVisible" class="modal-overlay file-preview-overlay" @click.self="closeFilePreview">
+            <div class="file-preview-modal">
+              <div class="file-preview-header">
+                <span class="file-preview-title">{{ filePreviewTitle }}</span>
+                <button class="file-preview-close" @click="closeFilePreview">✕</button>
+              </div>
+              <div class="file-preview-body">
+                <div v-if="filePreviewLoading" class="file-preview-loading">加载中...</div>
+                <div v-else-if="filePreviewType === 'pdf'" class="file-preview-pdf">
+                  <iframe :src="filePreviewUrl" frameborder="0"></iframe>
+                </div>
+                <div v-else-if="filePreviewType === 'docx' || filePreviewType === 'excel'" class="file-preview-html" v-html="filePreviewHtml"></div>
+                <div v-else-if="filePreviewType === 'unsupported'" class="file-preview-unsupported">{{ filePreviewError }}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3022,6 +3237,7 @@ onBeforeUnmount(() => {
                 <th>手机号</th>
                 <th>注册时间</th>
                 <th>角色</th>
+                <th>分配项目</th>
                 <th>权限</th>
                 <th>操作</th>
               </tr>
@@ -3034,6 +3250,7 @@ onBeforeUnmount(() => {
                 <td>{{ account.phone }}</td>
                 <td>{{ account.created_at }}</td>
                 <td>{{ account.role || '—' }}</td>
+                <td>{{ account.assigned_project || '—' }}</td>
                 <td>
                   <span :class="account.is_admin ? 'role-tag role-admin' : 'role-tag role-normal'">
                     {{ account.is_admin ? '管理员' : '普通用户' }}
@@ -3067,7 +3284,19 @@ onBeforeUnmount(() => {
               </div>
               <div class="modal-field">
                 <label>角色</label>
-                <input v-model="editAccountRole" placeholder="请输入角色（如：监理工程师）" />
+                <select v-model="editAccountRole" class="project-select">
+                  <option value="" disabled>请选择角色</option>
+                  <option value="监理工程师">监理工程师</option>
+                  <option value="施工班组长">施工班组长</option>
+                  <option value="项目经理">项目经理</option>
+                </select>
+              </div>
+              <div class="modal-field" v-if="isCurrentUserAdmin">
+                <label>分配项目（非管理员可见内容限制）</label>
+                <select v-model="editAccountAssignedProject" class="project-select">
+                  <option value="">不限制（可查看所有）</option>
+                  <option v-for="ov in overviewList" :key="ov.name" :value="ov.name">{{ ov.name }}</option>
+                </select>
               </div>
               <div v-if="editAccountError" class="modal-error">{{ editAccountError }}</div>
             </div>
@@ -3097,9 +3326,21 @@ onBeforeUnmount(() => {
               </div>
               <div class="modal-field">
                 <label>角色</label>
-                <input v-model="createAccountRole" placeholder="请输入角色（如：监理工程师）" />
+                <select v-model="createAccountRole" class="project-select">
+                  <option value="" disabled>请选择角色</option>
+                  <option value="监理工程师">监理工程师</option>
+                  <option value="施工班组长">施工班组长</option>
+                  <option value="项目经理">项目经理</option>
+                </select>
               </div>
               <div class="modal-field">
+                <label>分配项目（非管理员可见内容限制）</label>
+                <select v-model="createAccountAssignedProject" class="project-select">
+                  <option value="">不限制（可查看所有）</option>
+                  <option v-for="ov in overviewList" :key="ov.name" :value="ov.name">{{ ov.name }}</option>
+                </select>
+              </div>
+              <div class="modal-field" v-if="isCurrentUserAdmin">
                 <label style="display:flex;align-items:center;gap:8px;">
                   <input type="checkbox" v-model="createAccountIsAdmin" style="width:auto;" />
                   设为管理员
@@ -3763,5 +4004,162 @@ tbody tr:nth-child(even) {
 .wf-waiting {
   color: #aaa;
   font-size: 12px;
+}
+
+.risk-radio-group {
+  display: flex;
+  gap: 24px;
+  padding: 6px 0;
+}
+
+.risk-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+}
+
+.risk-radio-label input[type="radio"] {
+  width: auto;
+  cursor: pointer;
+}
+
+.no-risk-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #27ae60;
+}
+
+.file-preview-overlay {
+  align-items: stretch;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+}
+
+.file-preview-modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.file-preview-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e3a5f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #888;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.file-preview-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.file-preview-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.file-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+}
+
+.file-preview-pdf {
+  width: 100%;
+  height: 100%;
+}
+
+.file-preview-pdf iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  display: block;
+}
+
+.file-preview-html {
+  padding: 24px 28px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #333;
+}
+
+.file-preview-html :deep(table) {
+  border-collapse: collapse;
+  width: auto;
+  max-width: 100%;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.file-preview-html :deep(td),
+.file-preview-html :deep(th) {
+  border: 1px solid #ccc;
+  padding: 5px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.excel-sheet-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a5f;
+  background: #e8f0fa;
+  padding: 4px 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-bottom: 8px;
+  margin-top: 12px;
+}
+
+.file-preview-unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #888;
+  text-align: center;
+  padding: 24px;
 }
 </style>

@@ -1,0 +1,230 @@
+﻿<script setup>
+import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { registerUser } from '../utils/auth'
+
+const router = useRouter()
+
+const form = reactive({
+  username: '',
+  realName: '',
+  phone: '',
+  password: '',
+  confirmPassword: '',
+})
+
+const errorMessage = ref('')
+const submitting = ref(false)
+
+async function handleRegister() {
+  const username = form.username.trim()
+  const realName = form.realName.trim()
+  const phone = form.phone.trim()
+
+  if (!username || !realName || !phone || !form.password || !form.confirmPassword) {
+    errorMessage.value = '请完整填写注册信息'
+    return
+  }
+
+  if (!/^1\d{10}$/.test(phone)) {
+    errorMessage.value = '请输入有效的11位手机号'
+    return
+  }
+
+  if (form.password.length < 6) {
+    errorMessage.value = '密码长度不能少于6位'
+    return
+  }
+
+  if (form.password !== form.confirmPassword) {
+    errorMessage.value = '两次输入的密码不一致'
+    return
+  }
+
+  submitting.value = true
+  errorMessage.value = ''
+
+  try {
+    registerUser({
+      username,
+      realName,
+      phone,
+      password: form.password,
+    })
+
+    await router.push({
+      name: 'login',
+      query: {
+        registered: '1',
+        username,
+      },
+    })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '注册失败，请稍后重试'
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>账号注册</h1>
+        <p>填写账号信息后返回登录页</p>
+      </div>
+
+      <form class="auth-form" @submit.prevent="handleRegister">
+        <label class="auth-field">
+          <span>账号</span>
+          <input v-model="form.username" type="text" maxlength="30" placeholder="请输入账号" autocomplete="username">
+        </label>
+
+        <label class="auth-field">
+          <span>姓名</span>
+          <input v-model="form.realName" type="text" maxlength="20" placeholder="请输入姓名" autocomplete="name">
+        </label>
+
+        <label class="auth-field">
+          <span>手机号</span>
+          <input v-model="form.phone" type="tel" maxlength="11" placeholder="请输入手机号" autocomplete="tel">
+        </label>
+
+        <label class="auth-field">
+          <span>密码</span>
+          <input v-model="form.password" type="password" maxlength="50" placeholder="请输入密码" autocomplete="new-password">
+        </label>
+
+        <label class="auth-field">
+          <span>确认密码</span>
+          <input v-model="form.confirmPassword" type="password" maxlength="50" placeholder="请再次输入密码" autocomplete="new-password">
+        </label>
+
+        <p v-if="errorMessage" class="auth-message auth-message-error">{{ errorMessage }}</p>
+
+        <button class="auth-submit" type="submit" :disabled="submitting">
+          {{ submitting ? '注册中...' : '注册账号' }}
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        <span>已有账号？</span>
+        <button type="button" class="auth-link" @click="router.push('/login')">返回登录</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #10233f 0%, #1e3a5f 55%, #3b82f6 100%);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 32px 28px;
+  border-radius: 16px;
+  background-color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+}
+
+.auth-header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.auth-header h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #0f172a;
+}
+
+.auth-header p {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.auth-field input {
+  padding: 12px 14px;
+  font-size: 14px;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-field input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.auth-message {
+  margin: 0;
+  font-size: 13px;
+}
+
+.auth-message-error {
+  color: #dc2626;
+}
+
+.auth-submit {
+  padding: 12px 16px;
+  font-size: 15px;
+  color: #fff;
+  background-color: #2563eb;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.auth-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.auth-link {
+  padding: 0;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+</style>

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import db from '../db.js'
+import db, { saveBase64Photo } from '../db.js'
 
 const router = Router()
 
@@ -17,7 +17,8 @@ function toFrontend(row) {
     hazardType: row.hazardType,
     possibleAccident: row.possibleAccident,
     controlMeasure: row.controlMeasure,
-    level: row.level
+    level: row.level,
+    photo: row.photo || ''
   }
 }
 
@@ -41,16 +42,18 @@ router.get('/', (req, res) => {
  * 必填字段：project, name, hazardType, level
  */
 router.post('/', (req, res) => {
-  const { project, name, location, hazardType, possibleAccident, controlMeasure, level } = req.body
+  const { project, name, location, hazardType, possibleAccident, controlMeasure, level, photo } = req.body
   if (!project || !name || !hazardType || !level) return res.status(400).json({ error: 'Missing fields' })
+  const photoPath = saveBase64Photo(photo || '')
   const info = db.prepare(
-    'INSERT INTO hazards (project, name, location, hazardType, possibleAccident, controlMeasure, level) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(project, name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level)
+    'INSERT INTO hazards (project, name, location, hazardType, possibleAccident, controlMeasure, level, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(project, name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level, photoPath)
   res.json({
     id: Number(info.lastInsertRowid),
     project, name, location: location || '',
     hazardType, possibleAccident: possibleAccident || '',
-    controlMeasure: controlMeasure || '', level
+    controlMeasure: controlMeasure || '', level,
+    photo: photoPath
   })
 })
 
@@ -59,11 +62,12 @@ router.post('/', (req, res) => {
  * 更新指定 id 的危险源辨识记录
  */
 router.put('/:id', (req, res) => {
-  const { name, location, hazardType, possibleAccident, controlMeasure, level } = req.body
+  const { name, location, hazardType, possibleAccident, controlMeasure, level, photo } = req.body
   if (!name || !hazardType || !level) return res.status(400).json({ error: 'Missing fields' })
+  const photoPath = saveBase64Photo(photo || '')
   db.prepare(
-    'UPDATE hazards SET name = ?, location = ?, hazardType = ?, possibleAccident = ?, controlMeasure = ?, level = ? WHERE id = ?'
-  ).run(name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level, req.params.id)
+    'UPDATE hazards SET name = ?, location = ?, hazardType = ?, possibleAccident = ?, controlMeasure = ?, level = ?, photo = ? WHERE id = ?'
+  ).run(name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level, photoPath, req.params.id)
   const row = db.prepare('SELECT * FROM hazards WHERE id = ?').get(req.params.id)
   res.json(toFrontend(row))
 })

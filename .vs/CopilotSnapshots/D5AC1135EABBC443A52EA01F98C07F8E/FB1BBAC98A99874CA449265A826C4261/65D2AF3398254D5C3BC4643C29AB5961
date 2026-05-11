@@ -1,0 +1,80 @@
+﻿import { Router } from 'express'
+import db from '../db.js'
+
+const router = Router()
+
+/**
+ * 将数据库行转换为前端所需的字段格式
+ * @param {Object} row - 数据库查询结果行
+ * @returns {Object} 前端友好的数据对象
+ */
+function toFrontend(row) {
+  return {
+    id: row.id,
+    project: row.project,
+    name: row.name,
+    location: row.location,
+    hazardType: row.hazardType,
+    possibleAccident: row.possibleAccident,
+    controlMeasure: row.controlMeasure,
+    level: row.level
+  }
+}
+
+/**
+ * GET /api/hazards
+ * 获取所有危险源辨识记录，支持按 project 查询参数筛选
+ */
+router.get('/', (req, res) => {
+  let sql = 'SELECT * FROM hazards'
+  const params = []
+  const conds = []
+  if (req.query.project) { conds.push('project = ?'); params.push(req.query.project) }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ')
+  const rows = db.prepare(sql).all(...params)
+  res.json(rows.map(toFrontend))
+})
+
+/**
+ * POST /api/hazards
+ * 新增一条危险源辨识记录
+ * 必填字段：project, name, hazardType, level
+ */
+router.post('/', (req, res) => {
+  const { project, name, location, hazardType, possibleAccident, controlMeasure, level } = req.body
+  if (!project || !name || !hazardType || !level) return res.status(400).json({ error: 'Missing fields' })
+  const info = db.prepare(
+    'INSERT INTO hazards (project, name, location, hazardType, possibleAccident, controlMeasure, level) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(project, name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level)
+  res.json({
+    id: Number(info.lastInsertRowid),
+    project, name, location: location || '',
+    hazardType, possibleAccident: possibleAccident || '',
+    controlMeasure: controlMeasure || '', level
+  })
+})
+
+/**
+ * PUT /api/hazards/:id
+ * 更新指定 id 的危险源辨识记录
+ */
+router.put('/:id', (req, res) => {
+  const { name, location, hazardType, possibleAccident, controlMeasure, level } = req.body
+  if (!name || !hazardType || !level) return res.status(400).json({ error: 'Missing fields' })
+  db.prepare(
+    'UPDATE hazards SET name = ?, location = ?, hazardType = ?, possibleAccident = ?, controlMeasure = ?, level = ? WHERE id = ?'
+  ).run(name, location || '', hazardType, possibleAccident || '', controlMeasure || '', level, req.params.id)
+  const row = db.prepare('SELECT * FROM hazards WHERE id = ?').get(req.params.id)
+  res.json(toFrontend(row))
+})
+
+/**
+ * DELETE /api/hazards/:id
+ * 删除指定 id 的危险源辨识记录
+ */
+router.delete('/:id', (req, res) => {
+  db.prepare('DELETE FROM hazards WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
+export default router

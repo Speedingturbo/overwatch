@@ -78,7 +78,8 @@ db.exec(`
     hazardType TEXT NOT NULL,
     possibleAccident TEXT DEFAULT '',
     controlMeasure TEXT DEFAULT '',
-    level TEXT NOT NULL
+   level TEXT NOT NULL,
+   photo TEXT DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS preshift (
@@ -160,8 +161,35 @@ try {
     db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT ''")
     console.log('✓ Added role column to users table')
   }
+  const hasAssignedProject = columns.some(col => col.name === 'assigned_project')
+  if (!hasAssignedProject) {
+    db.exec("ALTER TABLE users ADD COLUMN assigned_project TEXT NOT NULL DEFAULT ''")
+    console.log('✓ Added assigned_project column to users table')
+  }
 } catch (err) {
   console.error('Users migration error:', err)
+}
+
+// 迁移：hazards 表补充 photo 列
+try {
+  const cols = db.prepare("PRAGMA table_info(hazards)").all()
+  if (!cols.some(c => c.name === 'photo')) {
+    db.exec("ALTER TABLE hazards ADD COLUMN photo TEXT DEFAULT ''")
+    console.log('✓ Added photo column to hazards table')
+  }
+} catch (err) {
+  console.error('Hazards migration error:', err)
+}
+
+// 迁移：device_inspections 表补充 photo 列
+try {
+  const cols = db.prepare("PRAGMA table_info(device_inspections)").all()
+  if (!cols.some(c => c.name === 'photo')) {
+    db.exec("ALTER TABLE device_inspections ADD COLUMN photo TEXT DEFAULT ''")
+    console.log('✓ Added photo column to device_inspections table')
+  }
+} catch (err) {
+  console.error('Device inspections migration error:', err)
 }
 
 /**

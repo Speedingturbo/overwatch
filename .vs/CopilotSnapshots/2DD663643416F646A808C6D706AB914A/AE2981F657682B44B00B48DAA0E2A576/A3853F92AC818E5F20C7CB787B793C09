@@ -1,0 +1,303 @@
+﻿<script setup>
+import { reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { loginUser } from '../utils/auth'
+
+const route = useRoute()
+const router = useRouter()
+
+const form = reactive({
+  username: typeof route.query.username === 'string' ? route.query.username : '',
+  password: '',
+})
+
+const errorMessage = ref('')
+const successMessage = ref(route.query.registered ? '注册成功，请使用新账号登录' : '')
+const submitting = ref(false)
+
+watch(
+  () => route.fullPath,
+  () => {
+    successMessage.value = route.query.registered ? '注册成功，请使用新账号登录' : ''
+  },
+  { immediate: true },
+)
+
+async function handleLogin() {
+  if (!form.username.trim() || !form.password) {
+    errorMessage.value = '请输入账号和密码'
+    return
+  }
+
+  submitting.value = true
+  errorMessage.value = ''
+
+  try {
+    await loginUser(form)
+
+    const redirectPath = typeof route.query.redirect === 'string' && route.query.redirect
+      ? route.query.redirect
+      : '/'
+
+    await router.push(redirectPath)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试'
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="auth-page">
+    <!-- 左侧品牌区 -->
+    <div class="auth-brand">
+      <div class="brand-content">
+        <div class="brand-logo">🏗</div>
+        <h1 class="brand-title">监理管理平台</h1>
+        <p class="brand-desc">专业的工程监理数字化管理系统<br>覆盖项目全周期监督与管控</p>
+      </div>
+      <div class="brand-footer">© 2025 监理管理平台</div>
+    </div>
+
+    <!-- 右侧表单区 -->
+    <div class="auth-panel">
+      <div class="auth-form-wrap">
+        <div class="auth-header">
+          <h2>账号登录</h2>
+          <p>请输入您的账号和密码</p>
+        </div>
+
+        <form class="auth-form" @submit.prevent="handleLogin">
+          <div class="auth-field">
+            <label>账号</label>
+            <input v-model="form.username" type="text" maxlength="30" placeholder="请输入账号" autocomplete="username">
+          </div>
+
+          <div class="auth-field">
+            <label>密码</label>
+            <input v-model="form.password" type="password" maxlength="50" placeholder="请输入密码" autocomplete="current-password">
+          </div>
+
+          <p v-if="successMessage" class="auth-message auth-message-success">✓ {{ successMessage }}</p>
+          <p v-if="errorMessage" class="auth-message auth-message-error">✕ {{ errorMessage }}</p>
+          <button class="auth-submit" type="submit" :disabled="submitting">
+            {{ submitting ? '登录中...' : '登录' }}
+          </button>
+        </form>
+
+        <div class="auth-footer">
+          <span>没有账号？</span>
+          <button type="button" class="auth-link" @click="router.push('/register')">立即注册</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+* {
+  box-sizing: border-box;
+}
+
+.auth-page {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 左侧品牌区 */
+.auth-brand {
+  flex: 0 0 45%;
+  background: linear-gradient(160deg, #0f2744 0%, #1e3a5f 50%, #1e4d8c 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 48px;
+  position: relative;
+}
+
+.brand-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.brand-logo {
+  font-size: 72px;
+  line-height: 1;
+}
+
+.brand-title {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 4px;
+}
+
+.brand-desc {
+  margin: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.8;
+}
+
+.brand-footer {
+  position: absolute;
+  bottom: 28px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* 右侧表单区 */
+.auth-panel {
+  flex: 1;
+  background-color: #f8fafc;
+  border-left: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 48px;
+}
+
+.auth-form-wrap {
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth-header {
+  margin-bottom: 36px;
+}
+
+.auth-header h2 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.auth-header p {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  letter-spacing: 0.5px;
+}
+
+.auth-field input {
+  padding: 11px 14px;
+  font-size: 14px;
+  color: #0f172a;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-field input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.auth-field input::placeholder {
+  color: #94a3b8;
+}
+
+.auth-message {
+  margin: -4px 0 0;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 5px;
+}
+
+.auth-message-success {
+  color: #166534;
+  background-color: #dcfce7;
+  border: 1px solid #bbf7d0;
+}
+
+.auth-message-error {
+  color: #991b1b;
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.auth-empty {
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: #92400e;
+  background-color: #fef9c3;
+  border: 1px solid #fde68a;
+  padding: 8px 12px;
+  border-radius: 5px;
+}
+
+.auth-submit {
+  margin-top: 4px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  color: #fff;
+  background-color: #1e3a5f;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background-color: #2563eb;
+}
+
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.auth-footer {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #64748b;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 20px;
+}
+
+.auth-link {
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+</style>
