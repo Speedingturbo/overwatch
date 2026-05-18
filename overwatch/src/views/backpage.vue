@@ -538,16 +538,118 @@ async function toggleRiskProcessed(filteredIndex, processed) {
   if (realIndex !== -1) riskList.value[realIndex] = updated
 }
 
-async function advanceWorkflow(filteredIndex, step) {
+async function advanceWorkflow(filteredIndex, step, extraPayload = {}) {
   const item = riskHandleForProject.value[filteredIndex]
   const userRole = currentUser.value?.role || ''
-  const updated = await api.put('/api/risks/' + item.id + '/workflow', { step, userRole })
-  if (updated.error) return
-  const realIndex = riskList.value.findIndex(r => r.id === item.id)
-  if (realIndex !== -1) riskList.value[realIndex] = updated
+  try {
+    const updated = await api.put('/api/risks/' + item.id + '/workflow', { step, userRole, ...extraPayload })
+    if (updated.error) {
+      console.error('[advanceWorkflow] server error:', updated.error)
+      return
+    }
+    const realIndex = riskList.value.findIndex(r => r.id === item.id)
+    if (realIndex !== -1) riskList.value.splice(realIndex, 1, updated)
+  } catch (e) {
+    console.error('[advanceWorkflow] fetch failed:', e)
+  }
+}
+
+async function rollbackWorkflow(filteredIndex) {
+  rollbackModalIndex.value = filteredIndex
+  rollbackReason.value = ''
+  rollbackModalVisible.value = true
+}
+
+const rollbackModalVisible = ref(false)
+const rollbackModalIndex = ref(-1)
+const rollbackReason = ref('')
+
+async function submitRollback() {
+  if (!rollbackReason.value.trim()) return
+  const item = riskHandleForProject.value[rollbackModalIndex.value]
+  const userRole = currentUser.value?.role || ''
+  const isAdmin = currentUser.value?.isAdmin || false
+  try {
+    const updated = await api.put('/api/risks/' + item.id + '/rollback', { userRole, isAdmin, rollbackReason: rollbackReason.value.trim() })
+    if (updated.error) { console.error('[rollback] error:', updated.error); return }
+    const realIndex = riskList.value.findIndex(r => r.id === item.id)
+    if (realIndex !== -1) riskList.value.splice(realIndex, 1, updated)
+  } catch (e) {
+    console.error('[rollback] fetch failed:', e)
+  }
+  rollbackModalVisible.value = false
+}
+
+// --- 整改情况详情弹窗 ---
+const confirmDetailItem = ref(null)
+
+function openConfirmDetail(item) {
+  confirmDetailItem.value = item
+}
+
+// --- 施工班组长确认处理弹窗 ---
+const confirmWorkflowModalVisible = ref(false)
+const confirmWorkflowIndex = ref(-1)
+const confirmWorkflowPhoto = ref('')
+const confirmWorkflowDesc = ref('')
+
+function openConfirmWorkflowModal(idx) {
+  confirmWorkflowIndex.value = idx
+  confirmWorkflowPhoto.value = ''
+  confirmWorkflowDesc.value = ''
+  confirmWorkflowModalVisible.value = true
+}
+
+function openEditConfirmModal(idx) {
+  const item = riskHandleForProject.value[idx]
+  confirmWorkflowIndex.value = idx
+  confirmWorkflowPhoto.value = item.confirmPhoto || ''
+  confirmWorkflowDesc.value = item.confirmDesc || ''
+  confirmWorkflowModalVisible.value = true
+  confirmWorkflowIsEdit.value = true
+}
+
+const confirmWorkflowIsEdit = ref(false)
+
+function handleConfirmWorkflowPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => { confirmWorkflowPhoto.value = reader.result }
+  reader.readAsDataURL(file)
+}
+
+async function submitConfirmWorkflow() {
+  if (!confirmWorkflowDesc.value.trim() && !confirmWorkflowPhoto.value) return
+  if (confirmWorkflowIsEdit.value) {
+    // Edit mode: call dedicated confirm endpoint
+    const item = riskHandleForProject.value[confirmWorkflowIndex.value]
+    const userRole = currentUser.value?.role || ''
+    try {
+      const updated = await api.put('/api/risks/' + item.id + '/confirm', {
+        confirmPhoto: confirmWorkflowPhoto.value,
+        confirmDesc: confirmWorkflowDesc.value.trim(),
+        userRole
+      })
+      if (!updated.error) {
+        const realIndex = riskList.value.findIndex(r => r.id === item.id)
+        if (realIndex !== -1) riskList.value.splice(realIndex, 1, updated)
+      }
+    } catch (e) {
+      console.error('[editConfirm] failed:', e)
+    }
+  } else {
+    await advanceWorkflow(confirmWorkflowIndex.value, 2, {
+      confirmPhoto: confirmWorkflowPhoto.value,
+      confirmDesc: confirmWorkflowDesc.value.trim()
+    })
+  }
+  confirmWorkflowModalVisible.value = false
+  confirmWorkflowIsEdit.value = false
 }
 
 function getRiskProcessStatusLabel(item) {
+  if (item.workflowStep >= 4) return '已完成处理'
   return item.processed ? '已处理' : '未处理'
 }
 
@@ -1087,7 +1189,7 @@ async function addInspection() {
   inspectionModalVisible.value = false
 }
 
-function openEditInspection(filteredIndex) {
+async function openEditInspection(filteredIndex) {
   const item = inspectionForProject.value[filteredIndex]
   inspectionEditIndex.value = inspectionList.value.indexOf(item)
   inspectionDeviceName.value = item.deviceName || ''
@@ -1095,7 +1197,17 @@ function openEditInspection(filteredIndex) {
   inspectionFoundRisk.value = item.foundRisk || ''
   editInspectionHasRisk.value = item.foundRisk ? 'yes' : 'no'
   inspectionWarrantyStatus.value = item.warrantyStatus || ''
-  inspectionPhoto.value = item.photo || ''
+  // Fetch full record to get base64 photo data
+  if (item.hasPhoto) {
+    try {
+      const full = await api.get('/api/device-inspections/' + item.id)
+      inspectionPhoto.value = full.photo || ''
+    } catch {
+      inspectionPhoto.value = ''
+    }
+  } else {
+    inspectionPhoto.value = ''
+  }
   editInspectionModalVisible.value = true
 }
 
@@ -1128,6 +1240,17 @@ async function removeInspection(filteredIndex) {
   await api.del('/api/device-inspections/' + item.id)
   const realIndex = inspectionList.value.findIndex(i => i.id === item.id)
   if (realIndex !== -1) inspectionList.value.splice(realIndex, 1)
+}
+
+async function loadInspectionPreview(item) {
+  if (item.hasPhoto) {
+    try {
+      const full = await api.get('/api/device-inspections/' + item.id)
+      inspectionPreviewPhoto.value = full.photo || ''
+    } catch {
+      inspectionPreviewPhoto.value = '/api/device-inspections/' + item.id + '/photo'
+    }
+  }
 }
 
 // --- 班前教育（站例会）模块 ---
@@ -2370,9 +2493,10 @@ onBeforeUnmount(() => {
                   <th>发现地点</th>
                   <th>风险等级</th>
                   <th>整改措施</th>
-                  <th>处理状态</th>
+                  <th>隐患照片</th>
+                  <th>整改情况</th>
                   <th>流程进度</th>
-                  <th>流程操作</th>
+                  <th>处理状态</th>
                 </tr>
               </thead>
               <tbody>
@@ -2386,7 +2510,15 @@ onBeforeUnmount(() => {
                   </td>
                   <td>{{ item.measure || '—' }}</td>
                   <td>
-                    <span :class="['process-tag', item.processed ? 'process-done' : 'process-pending']">{{ getRiskProcessStatusLabel(item) }}</span>
+                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="previewPhoto = item.photo" />
+                    <span v-else>—</span>
+                  </td>
+                  <td>
+                    <div v-if="item.confirmPhoto || item.confirmDesc" class="confirm-info-trigger" @click="openConfirmDetail(item)">
+                      <img v-if="item.confirmPhoto" :src="item.confirmPhoto" class="risk-photo-thumb" />
+                      <span v-if="!item.confirmPhoto && item.confirmDesc" class="confirm-has-text">查看整改描述</span>
+                    </div>
+                    <span v-else>—</span>
                   </td>
                   <td>
                     <div class="workflow-steps">
@@ -2397,6 +2529,9 @@ onBeforeUnmount(() => {
                       <span :class="['wf-step', item.workflowStep >= 3 ? 'wf-done' : 'wf-pending']">③复核</span>
                       <span class="wf-arrow">→</span>
                       <span :class="['wf-step', item.workflowStep >= 4 ? 'wf-done' : 'wf-pending']">④终确</span>
+                    </div>
+                    <div v-if="item.rollbackReason" class="rollback-reason-tag">
+                      ↩ {{ item.rollbackReason }}
                     </div>
                   </td>
                   <td>
@@ -2410,7 +2545,7 @@ onBeforeUnmount(() => {
                     <button
                       v-else-if="currentUser?.role === '施工班组长' && item.workflowStep === 1"
                       class="wf-btn wf-btn-confirm"
-                      @click="advanceWorkflow(idx, 2)"
+                      @click="openConfirmWorkflowModal(idx)"
                     >确认处理</button>
                     <!-- Step 3: 项目经理 复核处理 -->
                     <button
@@ -2426,6 +2561,28 @@ onBeforeUnmount(() => {
                     >最终确认</button>
                     <span v-else-if="item.workflowStep === 4" class="wf-complete">流程已完成</span>
                     <span v-else class="wf-waiting">等待上一步完成</span>
+                    <!-- 施工班组长在 step=2 时可编辑整改信息 -->
+                    <button
+                      v-if="currentUser?.role === '施工班组长' && item.workflowStep === 2"
+                      class="wf-btn wf-btn-edit-confirm"
+                      @click="openEditConfirmModal(idx)"
+                    >编辑整改</button>
+                    <!-- 管理员/项目经理/监理工程师可退回流程 -->
+                    <button
+                      v-if="isCurrentUserAdmin && item.workflowStep > 0"
+                      class="wf-btn wf-btn-rollback"
+                      @click="rollbackWorkflow(idx)"
+                    >退回</button>
+                    <button
+                      v-else-if="currentUser?.role === '项目经理' && item.workflowStep >= 2"
+                      class="wf-btn wf-btn-rollback"
+                      @click="rollbackWorkflow(idx)"
+                    >退回</button>
+                    <button
+                      v-else-if="currentUser?.role === '监理工程师' && item.workflowStep >= 1"
+                      class="wf-btn wf-btn-rollback"
+                      @click="rollbackWorkflow(idx)"
+                    >退回</button>
                   </td>
                 </tr>
               </tbody>
@@ -2433,6 +2590,65 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="!riskHandleForProject.length" class="empty-tip">该项目暂无风险隐患记录</div>
+          <div v-if="previewPhoto" class="modal-overlay" @click="previewPhoto = ''">
+            <img :src="previewPhoto" class="risk-photo-full" />
+          </div>
+
+          <!-- 退回流程确认弹窗 -->
+          <div v-if="rollbackModalVisible" class="modal-overlay" @click.self="rollbackModalVisible = false">
+            <div class="modal-content">
+              <h3 class="modal-title">退回流程</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>退回原因 <span style="color:#e74c3c">*</span></label>
+                  <textarea v-model="rollbackReason" placeholder="请填写退回原因" rows="4"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="rollbackModalVisible = false">取消</button>
+                <button class="wf-btn wf-btn-rollback" @click="submitRollback" :disabled="!rollbackReason.trim()">确认退回</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 整改情况详情弹窗 -->
+          <div v-if="confirmDetailItem" class="modal-overlay" @click.self="confirmDetailItem = null">
+            <div class="modal-content confirm-detail-modal">
+              <h3 class="modal-title">整改情况</h3>
+              <div class="confirm-detail-body">
+                <img v-if="confirmDetailItem.confirmPhoto" :src="confirmDetailItem.confirmPhoto" class="confirm-detail-img" />
+                <div v-if="confirmDetailItem.confirmDesc" class="confirm-detail-desc">{{ confirmDetailItem.confirmDesc }}</div>
+                <div v-if="!confirmDetailItem.confirmPhoto && !confirmDetailItem.confirmDesc" class="confirm-detail-empty">暂无整改信息</div>
+              </div>
+              <div class="modal-actions">
+                <button class="add-btn" @click="confirmDetailItem = null">关闭</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 施工班组长确认处理弹窗 -->
+          <div v-if="confirmWorkflowModalVisible" class="modal-overlay" @click.self="confirmWorkflowModalVisible = false; confirmWorkflowIsEdit = false">
+            <div class="modal-content">
+              <h3 class="modal-title">{{ confirmWorkflowIsEdit ? '编辑整改信息' : '确认处理' }}</h3>
+              <div class="modal-form">
+                <div class="modal-field">
+                  <label>整改完成照片</label>
+                  <input type="file" accept="image/*" @change="handleConfirmWorkflowPhoto" />
+                </div>
+                <div class="modal-field" v-if="confirmWorkflowPhoto">
+                  <img :src="confirmWorkflowPhoto" class="risk-photo-preview" />
+                </div>
+                <div class="modal-field">
+                  <label>整改内容描述</label>
+                  <textarea v-model="confirmWorkflowDesc" placeholder="请描述整改完成情况" rows="4"></textarea>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button class="modal-cancel-btn" @click="confirmWorkflowModalVisible = false; confirmWorkflowIsEdit = false">取消</button>
+                <button class="add-btn" @click="submitConfirmWorkflow">{{ confirmWorkflowIsEdit ? '保存' : '提交确认' }}</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2804,7 +3020,7 @@ onBeforeUnmount(() => {
                     <span v-else>{{ item.foundRisk }}</span>
                   </td>
                   <td>
-                    <img v-if="item.photo" :src="item.photo" class="risk-photo-thumb" @click="inspectionPreviewPhoto = item.photo" />
+                    <img v-if="item.hasPhoto" :src="'/api/device-inspections/' + item.id + '/photo'" class="risk-photo-thumb" @click="loadInspectionPreview(item)" />
                     <span v-else>—</span>
                   </td>
                   <td>{{ item.warrantyStatus || '—' }}</td>
@@ -3995,6 +4211,50 @@ tbody tr:nth-child(even) {
   background-color: #6c3483;
 }
 
+.wf-btn-edit-confirm {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #f39c12;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+}
+
+.wf-btn-edit-confirm:hover {
+  background: #d68910;
+}
+
+.wf-btn-rollback {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+}
+
+.wf-btn-rollback:hover {
+  background: #c0392b;
+}
+
+.rollback-reason-tag {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #e74c3c;
+  background: #fdf0ef;
+  border: 1px solid #f5c6c2;
+  border-radius: 4px;
+  padding: 3px 7px;
+  word-break: break-all;
+  max-width: 200px;
+}
+
 .wf-complete {
   color: #27ae60;
   font-size: 12px;
@@ -4004,6 +4264,78 @@ tbody tr:nth-child(even) {
 .wf-waiting {
   color: #aaa;
   font-size: 12px;
+}
+
+.confirm-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.confirm-desc-text {
+  font-size: 12px;
+  color: #444;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 160px;
+}
+
+.confirm-info-trigger {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.confirm-info-trigger:hover .risk-photo-thumb {
+  opacity: 0.8;
+}
+
+.confirm-has-text {
+  font-size: 12px;
+  color: #1a73e8;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.confirm-detail-modal {
+  max-width: 560px;
+  width: 90%;
+}
+
+.confirm-detail-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0 16px;
+}
+
+.confirm-detail-img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+
+.confirm-detail-desc {
+  width: 100%;
+  font-size: 14px;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.7;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+
+.confirm-detail-empty {
+  color: #aaa;
+  font-size: 14px;
 }
 
 .risk-radio-group {

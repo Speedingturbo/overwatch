@@ -192,6 +192,25 @@ try {
   console.error('Device inspections migration error:', err)
 }
 
+// 迁移：risks 表补充 confirmPhoto / confirmDesc / rollbackReason 列
+try {
+  const cols = db.prepare("PRAGMA table_info(risks)").all()
+  if (!cols.some(c => c.name === 'confirmPhoto')) {
+    db.exec("ALTER TABLE risks ADD COLUMN confirmPhoto TEXT DEFAULT ''")
+    console.log('\u2713 Added confirmPhoto column to risks table')
+  }
+  if (!cols.some(c => c.name === 'confirmDesc')) {
+    db.exec("ALTER TABLE risks ADD COLUMN confirmDesc TEXT DEFAULT ''")
+    console.log('\u2713 Added confirmDesc column to risks table')
+  }
+  if (!cols.some(c => c.name === 'rollbackReason')) {
+    db.exec("ALTER TABLE risks ADD COLUMN rollbackReason TEXT DEFAULT ''")
+    console.log('\u2713 Added rollbackReason column to risks table')
+  }
+} catch (err) {
+  console.error('Risks confirm migration error:', err)
+}
+
 /**
  * Save a base64 data-URL image to the uploads directory.
  * Returns the public path (e.g. /uploads/xxx.jpg).

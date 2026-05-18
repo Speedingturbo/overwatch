@@ -110,6 +110,16 @@ const HAZARD_LEVEL_COLOR = { '低': '#34d399', '中': '#f59e0b', '高': '#f97316
 const selectedInspectionProject = ref(null)
 const inspectionPreviewSrc = ref('')
 
+async function openInspectionPreview(id) {
+  try {
+    const res = await fetch('/api/device-inspections/' + id)
+    const data = await res.json()
+    inspectionPreviewSrc.value = data.photo || '/api/device-inspections/' + id + '/photo'
+  } catch {
+    inspectionPreviewSrc.value = '/api/device-inspections/' + id + '/photo'
+  }
+}
+
 const projectInspectionSummary = computed(() => {
   return visibleProjects.value.map(p => {
     const count = inspectionList.value.filter(
@@ -547,8 +557,8 @@ onMounted(async () => {
               <span class="hazard-meta-label">保修状态：</span>
               <span class="hazard-meta-value">{{ item.warrantyStatus }}</span>
             </div>
-            <div v-if="item.photo" class="quality-photo-wrap">
-              <img :src="item.photo" class="quality-photo" @click="inspectionPreviewSrc = item.photo" />
+            <div v-if="item.hasPhoto" class="quality-photo-wrap">
+              <img :src="'/api/device-inspections/' + item.id + '/photo'" class="quality-photo" @click="openInspectionPreview(item.id)" />
             </div>
           </div>
         </div>
